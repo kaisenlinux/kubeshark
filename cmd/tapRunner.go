@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/kubeshark/kubeshark/docker"
@@ -34,11 +35,18 @@ type tapState struct {
 
 var state tapState
 var connector *connect.Connector
-var hubPodReady bool
-var frontPodReady bool
-var proxyDone bool
+
+type Readiness struct {
+	Hub   bool
+	Front bool
+	Proxy bool
+	sync.Mutex
+}
+
+var ready *Readiness
 
 func tap() {
+	ready = &Readiness{}
 	state.startTime = time.Now()
 	docker.SetRegistry(config.Config.Tap.Docker.Registry)
 	docker.SetTag(config.Config.Tap.Docker.Tag)
@@ -71,9 +79,9 @@ func tap() {
 		}
 	}
 
-	log.Info().Strs("namespaces", state.targetNamespaces).Msg("Targetting pods in:")
+	log.Info().Strs("namespaces", state.targetNamespaces).Msg("Targeting pods in:")
 
-	if err := printTargettedPodsPreview(ctx, kubernetesProvider, state.targetNamespaces); err != nil {
+	if err := printTargetedPodsPreview(ctx, kubernetesProvider, state.targetNamespaces); err != nil {
 		log.Error().Err(errormessage.FormatError(err)).Msg("Error listing pods!")
 	}
 
@@ -82,10 +90,13 @@ func tap() {
 	}
 
 	log.Info().Msg(fmt.Sprintf("Waiting for the creation of %s resources...", misc.Software))
-	if state.selfServiceAccountExists, err = resources.CreateHubResources(ctx, kubernetesProvider, config.Config.IsNsRestrictedMode(), config.Config.SelfNamespace, config.Config.Tap.Resources.Hub, config.Config.ImagePullPolicy(), config.Config.Tap.Debug); err != nil {
+	if state.selfServiceAccountExists, err = resources.CreateHubResources(ctx, kubernetesProvider, config.Config.IsNsRestrictedMode(), config.Config.SelfNamespace, config.Config.Tap.Resources.Hub, config.Config.ImagePullPolicy(), config.Config.ImagePullSecrets(), config.Config.Tap.Debug); err != nil {
 		var statusError *k8serrors.StatusError
 		if errors.As(err, &statusError) && (statusError.ErrStatus.Reason == metav1.StatusReasonAlreadyExists) {
-			log.Warn().Msg(fmt.Sprintf("%s is already running in this namespace, change the `selfnamespace` configuration or run `%s clean` to remove the currently running %s instance", misc.Software, misc.Program, misc.Software))
+			log.Info().Msg(fmt.Sprintf("%s is already running in this namespace, change the `selfnamespace` configuration or run `%s clean` to remove the currently running %s instance.", misc.Software, misc.Program, misc.Software))
+			postHubStarted(ctx, kubernetesProvider, cancel, true)
+			log.Info().Msg("Updated Hub about the changes in the config. Exiting.")
+			printProxyCommandSuggestion()
 		} else {
 			defer resources.CleanUpSelfResources(ctx, cancel, kubernetesProvider, config.Config.IsNsRestrictedMode(), config.Config.SelfNamespace)
 			log.Error().Err(errormessage.FormatError(err)).Msg("Error creating resources!")
@@ -102,10 +113,17 @@ func tap() {
 
 	// block until exit signal or error
 	utils.WaitForTermination(ctx, cancel)
+	printProxyCommandSuggestion()
+}
+
+func printProxyCommandSuggestion() {
+	log.Warn().
+		Str("command", fmt.Sprintf("%s proxy", misc.Program)).
+		Msg(fmt.Sprintf(utils.Yellow, "To re-establish a proxy/port-forward, run:"))
 }
 
 func finishTapExecution(kubernetesProvider *kubernetes.Provider) {
-	finishSelfExecution(kubernetesProvider, config.Config.IsNsRestrictedMode(), config.Config.SelfNamespace)
+	finishSelfExecution(kubernetesProvider, config.Config.IsNsRestrictedMode(), config.Config.SelfNamespace, true)
 }
 
 /*
@@ -113,67 +131,18 @@ This function is a bit problematic as it might be detached from the actual pods 
 The alternative would be to wait for Hub to be ready and then query it for the pods it listens to, this has
 the arguably worse drawback of taking a relatively very long time before the user sees which pods are targeted, if any.
 */
-func printTargettedPodsPreview(ctx context.Context, kubernetesProvider *kubernetes.Provider, namespaces []string) error {
+func printTargetedPodsPreview(ctx context.Context, kubernetesProvider *kubernetes.Provider, namespaces []string) error {
 	if matchingPods, err := kubernetesProvider.ListAllRunningPodsMatchingRegex(ctx, config.Config.Tap.PodRegex(), namespaces); err != nil {
 		return err
 	} else {
 		if len(matchingPods) == 0 {
 			printNoPodsFoundSuggestion(namespaces)
 		}
-		for _, targettedPod := range matchingPods {
-			log.Info().Msg(fmt.Sprintf("New pod: %s", fmt.Sprintf(utils.Green, targettedPod.Name)))
+		for _, targetedPod := range matchingPods {
+			log.Info().Msg(fmt.Sprintf("Targeted pod: %s", fmt.Sprintf(utils.Green, targetedPod.Name)))
 		}
 		return nil
 	}
-}
-
-func startWorkerSyncer(ctx context.Context, cancel context.CancelFunc, provider *kubernetes.Provider, targetNamespaces []string, startTime time.Time) error {
-	workerSyncer, err := kubernetes.CreateAndStartWorkerSyncer(ctx, provider, kubernetes.WorkerSyncerConfig{
-		TargetNamespaces:         targetNamespaces,
-		PodFilterRegex:           *config.Config.Tap.PodRegex(),
-		SelfNamespace:            config.Config.SelfNamespace,
-		WorkerResources:          config.Config.Tap.Resources.Worker,
-		ImagePullPolicy:          config.Config.ImagePullPolicy(),
-		SelfServiceAccountExists: state.selfServiceAccountExists,
-		ServiceMesh:              config.Config.Tap.ServiceMesh,
-		Tls:                      config.Config.Tap.Tls,
-		Debug:                    config.Config.Tap.Debug,
-	}, startTime)
-
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		for {
-			select {
-			case syncerErr, ok := <-workerSyncer.ErrorOut:
-				if !ok {
-					log.Debug().Msg("workerSyncer err channel closed, ending listener loop")
-					return
-				}
-				log.Error().Msg(getK8sTapManagerErrorText(syncerErr))
-				cancel()
-			case _, ok := <-workerSyncer.TapPodChangesOut:
-				if !ok {
-					log.Debug().Msg("workerSyncer pod changes channel closed, ending listener loop")
-					return
-				}
-				go connector.PostTargettedPodsToHub(workerSyncer.CurrentlyTargettedPods)
-			case pod, ok := <-workerSyncer.WorkerPodsChanges:
-				if !ok {
-					log.Debug().Msg("workerSyncer worker status changed channel closed, ending listener loop")
-					return
-				}
-				go connector.PostWorkerPodToHub(pod)
-			case <-ctx.Done():
-				log.Debug().Msg("workerSyncer event listener loop exiting due to context done")
-				return
-			}
-		}
-	}()
-
-	return nil
 }
 
 func printNoPodsFoundSuggestion(targetNamespaces []string) {
@@ -182,19 +151,6 @@ func printNoPodsFoundSuggestion(targetNamespaces []string) {
 		suggestionStr = ". You can also try selecting a different namespace with -n or target all namespaces with -A"
 	}
 	log.Warn().Msg(fmt.Sprintf("Did not find any currently running pods that match the regex argument, %s will automatically target matching pods if any are created later%s", misc.Software, suggestionStr))
-}
-
-func getK8sTapManagerErrorText(err kubernetes.K8sTapManagerError) string {
-	switch err.TapManagerReason {
-	case kubernetes.TapManagerPodListError:
-		return fmt.Sprintf("Failed to update currently targetted pods: %v", err.OriginalError)
-	case kubernetes.TapManagerPodWatchError:
-		return fmt.Sprintf("Error occured in K8s pod watch: %v", err.OriginalError)
-	case kubernetes.TapManagerWorkerUpdateError:
-		return fmt.Sprintf("Error updating worker: %v", err.OriginalError)
-	default:
-		return fmt.Sprintf("Unknown error occured in K8s tap manager: %v", err.OriginalError)
-	}
 }
 
 func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
@@ -214,9 +170,9 @@ func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, c
 
 			switch wEvent.Type {
 			case kubernetes.EventAdded:
-				log.Info().Str("pod", kubernetes.HubPodName).Msg("Added pod.")
+				log.Info().Str("pod", kubernetes.HubPodName).Msg("Added:")
 			case kubernetes.EventDeleted:
-				log.Info().Str("pod", kubernetes.HubPodName).Msg("Removed pod.")
+				log.Info().Str("pod", kubernetes.HubPodName).Msg("Removed:")
 				cancel()
 				return
 			case kubernetes.EventModified:
@@ -235,12 +191,23 @@ func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, c
 
 				if modifiedPod.Status.Phase == core.PodRunning && !isPodReady {
 					isPodReady = true
-					hubPodReady = true
-					postHubStarted(ctx, kubernetesProvider, cancel)
+
+					ready.Lock()
+					ready.Hub = true
+					ready.Unlock()
+					postHubStarted(ctx, kubernetesProvider, cancel, false)
 				}
 
+				ready.Lock()
+				proxyDone := ready.Proxy
+				hubPodReady := ready.Hub
+				frontPodReady := ready.Front
+				ready.Unlock()
+
 				if !proxyDone && hubPodReady && frontPodReady {
-					proxyDone = true
+					ready.Lock()
+					ready.Proxy = true
+					ready.Unlock()
 					postFrontStarted(ctx, kubernetesProvider, cancel)
 				}
 			case kubernetes.EventBookmark:
@@ -294,9 +261,9 @@ func watchFrontPod(ctx context.Context, kubernetesProvider *kubernetes.Provider,
 
 			switch wEvent.Type {
 			case kubernetes.EventAdded:
-				log.Info().Str("pod", kubernetes.FrontPodName).Msg("Added pod.")
+				log.Info().Str("pod", kubernetes.FrontPodName).Msg("Added:")
 			case kubernetes.EventDeleted:
-				log.Info().Str("pod", kubernetes.FrontPodName).Msg("Removed pod.")
+				log.Info().Str("pod", kubernetes.FrontPodName).Msg("Removed:")
 				cancel()
 				return
 			case kubernetes.EventModified:
@@ -315,11 +282,21 @@ func watchFrontPod(ctx context.Context, kubernetesProvider *kubernetes.Provider,
 
 				if modifiedPod.Status.Phase == core.PodRunning && !isPodReady {
 					isPodReady = true
-					frontPodReady = true
+					ready.Lock()
+					ready.Front = true
+					ready.Unlock()
 				}
 
+				ready.Lock()
+				proxyDone := ready.Proxy
+				hubPodReady := ready.Hub
+				frontPodReady := ready.Front
+				ready.Unlock()
+
 				if !proxyDone && hubPodReady && frontPodReady {
-					proxyDone = true
+					ready.Lock()
+					ready.Proxy = true
+					ready.Unlock()
 					postFrontStarted(ctx, kubernetesProvider, cancel)
 				}
 			case kubernetes.EventBookmark:
@@ -425,20 +402,91 @@ func watchHubEvents(ctx context.Context, kubernetesProvider *kubernetes.Provider
 	}
 }
 
-func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
-	startProxyReportErrorIfAny(kubernetesProvider, ctx, cancel, kubernetes.HubServiceName, configStructs.ProxyFrontPortLabel, config.Config.Tap.Proxy.Hub.SrcPort, config.Config.Tap.Proxy.Hub.DstPort, "/echo")
+func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc, update bool) {
+	startProxyReportErrorIfAny(
+		kubernetesProvider,
+		ctx,
+		kubernetes.HubServiceName,
+		kubernetes.HubPodName,
+		configStructs.ProxyHubPortLabel,
+		config.Config.Tap.Proxy.Hub.SrcPort,
+		config.Config.Tap.Proxy.Hub.DstPort,
+		"/echo",
+	)
 
-	if err := startWorkerSyncer(ctx, cancel, kubernetesProvider, state.targetNamespaces, state.startTime); err != nil {
-		log.Error().Err(errormessage.FormatError(err)).Msg("Error starting worker syncer")
-		cancel()
+	if !update {
+		// Create workers
+		err := kubernetes.CreateWorkers(
+			kubernetesProvider,
+			state.selfServiceAccountExists,
+			ctx,
+			config.Config.SelfNamespace,
+			config.Config.Tap.Resources.Worker,
+			config.Config.ImagePullPolicy(),
+			config.Config.ImagePullSecrets(),
+			config.Config.Tap.ServiceMesh,
+			config.Config.Tap.Tls,
+			config.Config.Tap.Debug,
+		)
+		if err != nil {
+			log.Error().Err(err).Send()
+		}
+
+		// Grace period
+		log.Info().Msg("Waiting for worker containers...")
+		time.Sleep(5 * time.Second)
 	}
 
-	url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.SrcPort)
-	log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, "Hub is available at:"))
+	// Storage limit
+	connector.PostStorageLimitToHub(config.Config.Tap.StorageLimitBytes())
+
+	// Pod regex
+	connector.PostRegexToHub(config.Config.Tap.PodRegexStr, state.targetNamespaces)
+
+	// License
+	if config.Config.License != "" {
+		connector.PostLicense(config.Config.License)
+	}
+
+	// Scripting
+	connector.PostEnv(config.Config.Scripting.Env)
+
+	scripts, err := config.Config.Scripting.GetScripts()
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+
+	for _, script := range scripts {
+		_, err = connector.PostScript(script)
+		if err != nil {
+			log.Error().Err(err).Send()
+		}
+	}
+
+	connector.PostScriptDone()
+
+	if !update {
+		// Hub proxy URL
+		url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.SrcPort)
+		log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, "Hub is available at:"))
+	}
+
+	if config.Config.Scripting.Source != "" && config.Config.Scripting.WatchScripts {
+		watchScripts(false)
+	}
 }
 
 func postFrontStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
-	startProxyReportErrorIfAny(kubernetesProvider, ctx, cancel, kubernetes.FrontServiceName, configStructs.ProxyHubPortLabel, config.Config.Tap.Proxy.Front.SrcPort, config.Config.Tap.Proxy.Front.DstPort, "")
+	startProxyReportErrorIfAny(
+		kubernetesProvider,
+		ctx,
+		kubernetes.FrontServiceName,
+		kubernetes.FrontPodName,
+		configStructs.ProxyFrontPortLabel,
+		config.Config.Tap.Proxy.Front.SrcPort,
+		config.Config.Tap.Proxy.Front.DstPort,
+		"",
+	)
 
 	url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Front.SrcPort)
 	log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, fmt.Sprintf("%s is available at:", misc.Software)))

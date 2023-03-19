@@ -1,26 +1,25 @@
 package kubernetes
 
 import (
-	"regexp"
-
 	"github.com/kubeshark/base/pkg/models"
+	"github.com/kubeshark/kubeshark/config"
 	core "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func GetNodeHostToTargettedPodsMap(targettedPods []core.Pod) models.NodeToPodsMap {
-	nodeToTargettedPodsMap := make(models.NodeToPodsMap)
-	for _, pod := range targettedPods {
+func GetNodeHostToTargetedPodsMap(targetedPods []core.Pod) models.NodeToPodsMap {
+	nodeToTargetedPodsMap := make(models.NodeToPodsMap)
+	for _, pod := range targetedPods {
 		minimizedPod := getMinimizedPod(pod)
 
-		existingList := nodeToTargettedPodsMap[pod.Spec.NodeName]
+		existingList := nodeToTargetedPodsMap[pod.Spec.NodeName]
 		if existingList == nil {
-			nodeToTargettedPodsMap[pod.Spec.NodeName] = []core.Pod{minimizedPod}
+			nodeToTargetedPodsMap[pod.Spec.NodeName] = []core.Pod{minimizedPod}
 		} else {
-			nodeToTargettedPodsMap[pod.Spec.NodeName] = append(nodeToTargettedPodsMap[pod.Spec.NodeName], minimizedPod)
+			nodeToTargetedPodsMap[pod.Spec.NodeName] = append(nodeToTargetedPodsMap[pod.Spec.NodeName], minimizedPod)
 		}
 	}
-	return nodeToTargettedPodsMap
+	return nodeToTargetedPodsMap
 }
 
 func getMinimizedPod(fullPod core.Pod) core.Pod {
@@ -48,48 +47,21 @@ func getMinimizedContainerStatuses(fullPod core.Pod) []core.ContainerStatus {
 	return result
 }
 
-func excludeSelfPods(pods []core.Pod) []core.Pod {
-	selfPrefixRegex := regexp.MustCompile("^" + SelfResourcesPrefix)
-
-	nonSelfPods := make([]core.Pod, 0)
-	for _, pod := range pods {
-		if !selfPrefixRegex.MatchString(pod.Name) {
-			nonSelfPods = append(nonSelfPods, pod)
-		}
-	}
-
-	return nonSelfPods
-}
-
-func getPodArrayDiff(oldPods []core.Pod, newPods []core.Pod) (added []core.Pod, removed []core.Pod) {
-	added = getMissingPods(newPods, oldPods)
-	removed = getMissingPods(oldPods, newPods)
-
-	return added, removed
-}
-
-//returns pods present in pods1 array and missing in pods2 array
-func getMissingPods(pods1 []core.Pod, pods2 []core.Pod) []core.Pod {
-	missingPods := make([]core.Pod, 0)
-	for _, pod1 := range pods1 {
-		var found = false
-		for _, pod2 := range pods2 {
-			if pod1.UID == pod2.UID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			missingPods = append(missingPods, pod1)
-		}
-	}
-	return missingPods
-}
-
 func GetPodInfosForPods(pods []core.Pod) []*models.PodInfo {
 	podInfos := make([]*models.PodInfo, 0)
 	for _, pod := range pods {
 		podInfos = append(podInfos, &models.PodInfo{Name: pod.Name, Namespace: pod.Namespace, NodeName: pod.Spec.NodeName})
 	}
 	return podInfos
+}
+
+func buildWithDefaultLabels(labels map[string]string, provider *Provider) map[string]string {
+	labels["LabelManagedBy"] = provider.managedBy
+	labels["LabelCreatedBy"] = provider.createdBy
+
+	for k, v := range config.Config.ResourceLabels {
+		labels[k] = v
+	}
+
+	return labels
 }

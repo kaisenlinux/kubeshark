@@ -4,40 +4,48 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/kubeshark/kubeshark/kubernetes"
 	"github.com/kubeshark/kubeshark/utils"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	DockerRegistryLabel = "docker-registry"
-	DockerTagLabel      = "docker-tag"
-	ProxyFrontPortLabel = "proxy-front-port"
-	ProxyHubPortLabel   = "proxy-hub-port"
-	ProxyHostLabel      = "proxy-host"
-	NamespacesLabel     = "namespaces"
-	AllNamespacesLabel  = "allnamespaces"
-	StorageLimitLabel   = "storagelimit"
-	DryRunLabel         = "dryrun"
-	PcapLabel           = "pcap"
-	ServiceMeshLabel    = "servicemesh"
-	TlsLabel            = "tls"
-	DebugLabel          = "debug"
+	DockerRegistryLabel    = "docker-registry"
+	DockerTagLabel         = "docker-tag"
+	DockerImagePullPolicy  = "docker-imagepullpolicy"
+	DockerImagePullSecrets = "docker-imagepullsecrets"
+	ProxyFrontPortLabel    = "proxy-front-port"
+	ProxyHubPortLabel      = "proxy-hub-port"
+	ProxyHostLabel         = "proxy-host"
+	NamespacesLabel        = "namespaces"
+	AllNamespacesLabel     = "allnamespaces"
+	StorageLimitLabel      = "storagelimit"
+	DryRunLabel            = "dryrun"
+	PcapLabel              = "pcap"
+	ServiceMeshLabel       = "servicemesh"
+	TlsLabel               = "tls"
+	DebugLabel             = "debug"
 )
 
+type Resources struct {
+	CpuLimit       string `yaml:"cpu-limit" default:"750m"`
+	MemoryLimit    string `yaml:"memory-limit" default:"1Gi"`
+	CpuRequests    string `yaml:"cpu-requests" default:"50m"`
+	MemoryRequests string `yaml:"memory-requests" default:"50Mi"`
+}
+
 type WorkerConfig struct {
-	SrcPort uint16 `yaml:"src-port" default:"8897"`
-	DstPort uint16 `yaml:"dst-port" default:"8897"`
+	SrcPort uint16 `yaml:"port" default:"8897"`
+	DstPort uint16 `yaml:"srvport" default:"8897"`
 }
 
 type HubConfig struct {
-	SrcPort uint16 `yaml:"src-port" default:"8898"`
-	DstPort uint16 `yaml:"dst-port" default:"8898"`
+	SrcPort uint16 `yaml:"port" default:"8898"`
+	DstPort uint16 `yaml:"srvport" default:"80"`
 }
 
 type FrontConfig struct {
-	SrcPort uint16 `yaml:"src-port" default:"8899"`
-	DstPort uint16 `yaml:"dst-port" default:"80"`
+	SrcPort uint16 `yaml:"port" default:"8899"`
+	DstPort uint16 `yaml:"srvport" default:"80"`
 }
 
 type ProxyConfig struct {
@@ -48,14 +56,15 @@ type ProxyConfig struct {
 }
 
 type DockerConfig struct {
-	Registry        string `yaml:"registry" default:"docker.io/kubeshark"`
-	Tag             string `yaml:"tag" default:"latest"`
-	ImagePullPolicy string `yaml:"imagepullpolicy" default:"Always"`
+	Registry         string   `yaml:"registry" default:"docker.io/kubeshark"`
+	Tag              string   `yaml:"tag" default:"latest"`
+	ImagePullPolicy  string   `yaml:"imagepullpolicy" default:"Always"`
+	ImagePullSecrets []string `yaml:"imagepullsecrets"`
 }
 
 type ResourcesConfig struct {
-	Worker kubernetes.Resources `yaml:"worker"`
-	Hub    kubernetes.Resources `yaml:"hub"`
+	Worker Resources `yaml:"worker"`
+	Hub    Resources `yaml:"hub"`
 }
 
 type TapConfig struct {

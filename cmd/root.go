@@ -12,8 +12,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "kubeshark",
-	Short: fmt.Sprintf("%s: The API Traffic Viewer for Kubernetes", misc.Software),
-	Long: fmt.Sprintf(`%s: The API Traffic Viewer for Kubernetes
+	Short: fmt.Sprintf("%s: The API Traffic Analyzer for Kubernetes", misc.Software),
+	Long: fmt.Sprintf(`%s: The API Traffic Analyzer for Kubernetes
 An extensible Kubernetes-aware network sniffer and kernel tracer.
 For more info: %s`, misc.Software, misc.Website),
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -32,8 +32,7 @@ func init() {
 	}
 
 	rootCmd.PersistentFlags().StringSlice(config.SetCommandName, []string{}, fmt.Sprintf("Override values using --%s", config.SetCommandName))
-	rootCmd.PersistentFlags().String(config.ConfigFilePathCommandName, defaultConfig.ConfigFilePath, fmt.Sprintf("Override config file path using --%s", config.ConfigFilePathCommandName))
-	rootCmd.PersistentFlags().BoolP(config.DebugFlag, "d", false, "Enable debug mode.")
+	rootCmd.PersistentFlags().BoolP(config.DebugFlag, "d", false, "Enable debug mode")
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

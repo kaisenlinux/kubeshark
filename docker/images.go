@@ -1,6 +1,9 @@
 package docker
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	hub    = "hub"
@@ -9,7 +12,7 @@ const (
 )
 
 var (
-	registry = "docker.io/kubeshark"
+	registry = "docker.io/kubeshark/"
 	tag      = "latest"
 )
 
@@ -18,7 +21,11 @@ func GetRegistry() string {
 }
 
 func SetRegistry(value string) {
-	registry = value
+	if strings.HasPrefix(value, "docker.io/kubeshark") {
+		registry = "docker.io/kubeshark/"
+	} else {
+		registry = value
+	}
 }
 
 func GetTag() string {
@@ -30,7 +37,7 @@ func SetTag(value string) {
 }
 
 func getImage(image string) string {
-	return fmt.Sprintf("%s/%s:%s", registry, image, tag)
+	return fmt.Sprintf("%s%s:%s", registry, image, tag)
 }
 
 func GetHubImage() string {

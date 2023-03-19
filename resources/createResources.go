@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kubeshark/kubeshark/config"
+	"github.com/kubeshark/kubeshark/config/configStructs"
 	"github.com/kubeshark/kubeshark/docker"
 	"github.com/kubeshark/kubeshark/errormessage"
 	"github.com/kubeshark/kubeshark/kubernetes"
@@ -13,10 +14,10 @@ import (
 	core "k8s.io/api/core/v1"
 )
 
-func CreateHubResources(ctx context.Context, kubernetesProvider *kubernetes.Provider, isNsRestrictedMode bool, selfNamespace string, hubResources kubernetes.Resources, imagePullPolicy core.PullPolicy, debug bool) (bool, error) {
+func CreateHubResources(ctx context.Context, kubernetesProvider *kubernetes.Provider, isNsRestrictedMode bool, selfNamespace string, hubResources configStructs.Resources, imagePullPolicy core.PullPolicy, imagePullSecrets []core.LocalObjectReference, debug bool) (bool, error) {
 	if !isNsRestrictedMode {
 		if err := createSelfNamespace(ctx, kubernetesProvider, selfNamespace); err != nil {
-			return false, err
+			log.Debug().Err(err).Send()
 		}
 	}
 
@@ -39,6 +40,7 @@ func CreateHubResources(ctx context.Context, kubernetesProvider *kubernetes.Prov
 		ServiceAccountName: serviceAccountName,
 		Resources:          hubResources,
 		ImagePullPolicy:    imagePullPolicy,
+		ImagePullSecrets:   imagePullSecrets,
 		Debug:              debug,
 	}
 
@@ -49,6 +51,7 @@ func CreateHubResources(ctx context.Context, kubernetesProvider *kubernetes.Prov
 		ServiceAccountName: serviceAccountName,
 		Resources:          hubResources,
 		ImagePullPolicy:    imagePullPolicy,
+		ImagePullSecrets:   imagePullSecrets,
 		Debug:              debug,
 	}
 

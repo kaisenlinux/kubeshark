@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/creasty/defaults"
+	"github.com/kubeshark/kubeshark/misc"
 	"github.com/kubeshark/kubeshark/misc/version"
 	"github.com/kubeshark/kubeshark/utils"
 	"github.com/rs/zerolog"
@@ -28,9 +31,10 @@ const (
 )
 
 var (
-	Config    ConfigStruct
-	DebugMode bool
-	cmdName   string
+	Config         ConfigStruct
+	DebugMode      bool
+	cmdName        string
+	ConfigFilePath string
 )
 
 func InitConfig(cmd *cobra.Command) error {
@@ -48,7 +52,9 @@ func InitConfig(cmd *cobra.Command) error {
 		return nil
 	}
 
-	go version.CheckNewerVersion()
+	if cmd.Use != "console" && cmd.Use != "pro" {
+		go version.CheckNewerVersion()
+	}
 
 	Config = CreateDefaultConfig()
 	cmdName = cmd.Name()
@@ -57,12 +63,11 @@ func InitConfig(cmd *cobra.Command) error {
 		return err
 	}
 
-	configFilePathFlag := cmd.Flags().Lookup(ConfigFilePathCommandName)
-	configFilePath := configFilePathFlag.Value.String()
-	if err := loadConfigFile(configFilePath, &Config); err != nil {
-		if configFilePathFlag.Changed || !os.IsNotExist(err) {
+	ConfigFilePath = path.Join(misc.GetDotFolderPath(), "config.yaml")
+	if err := loadConfigFile(&Config); err != nil {
+		if !os.IsNotExist(err) {
 			return fmt.Errorf("invalid config, %w\n"+
-				"you can regenerate the file by removing it (%v) and using `kubeshark config -r`", err, configFilePath)
+				"you can regenerate the file by removing it (%v) and using `kubeshark config -r`", err, ConfigFilePath)
 		}
 	}
 
@@ -92,29 +97,48 @@ func WriteConfig(config *ConfigStruct) error {
 	}
 
 	data := []byte(template)
-	if err := os.WriteFile(Config.ConfigFilePath, data, 0644); err != nil {
+
+	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
+		err = os.MkdirAll(filepath.Dir(ConfigFilePath), 0700)
+		if err != nil {
+			return fmt.Errorf("failed creating directories, err: %v", err)
+		}
+	}
+
+	if err := os.WriteFile(ConfigFilePath, data, 0644); err != nil {
 		return fmt.Errorf("failed writing config, err: %v", err)
 	}
 
 	return nil
 }
 
-func loadConfigFile(configFilePath string, config *ConfigStruct) error {
-	reader, openErr := os.Open(configFilePath)
-	if openErr != nil {
-		return openErr
+func loadConfigFile(config *ConfigStruct) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
 	}
 
-	buf, readErr := io.ReadAll(reader)
-	if readErr != nil {
-		return readErr
+	cwdConfig := filepath.Join(cwd, fmt.Sprintf("%s.yaml", misc.Program))
+	reader, err := os.Open(cwdConfig)
+	if err != nil {
+		reader, err = os.Open(ConfigFilePath)
+		if err != nil {
+			return err
+		}
+	} else {
+		ConfigFilePath = cwdConfig
+	}
+
+	buf, err := io.ReadAll(reader)
+	if err != nil {
+		return err
 	}
 
 	if err := yaml.Unmarshal(buf, config); err != nil {
 		return err
 	}
 
-	log.Info().Str("path", configFilePath).Msg("Found config file!")
+	log.Info().Str("path", ConfigFilePath).Msg("Found config file!")
 
 	return nil
 }
@@ -123,9 +147,7 @@ func initFlag(f *pflag.Flag) {
 	configElemValue := reflect.ValueOf(&Config).Elem()
 
 	var flagPath []string
-	if !utils.Contains([]string{ConfigFilePathCommandName}, f.Name) {
-		flagPath = append(flagPath, cmdName)
-	}
+	flagPath = append(flagPath, cmdName)
 
 	flagPath = append(flagPath, strings.Split(f.Name, "-")...)
 
