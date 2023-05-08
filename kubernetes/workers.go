@@ -14,13 +14,26 @@ func CreateWorkers(
 	selfServiceAccountExists bool,
 	ctx context.Context,
 	namespace string,
-	resources configStructs.Resources,
+	resources configStructs.ResourceRequirements,
 	imagePullPolicy core.PullPolicy,
 	imagePullSecrets []core.LocalObjectReference,
 	serviceMesh bool,
 	tls bool,
 	debug bool,
 ) error {
+	persistentVolumeClaim, err := kubernetesProvider.BuildPersistentVolumeClaim()
+	if err != nil {
+		return err
+	}
+
+	if _, err = kubernetesProvider.CreatePersistentVolumeClaim(
+		ctx,
+		namespace,
+		persistentVolumeClaim,
+	); err != nil {
+		return err
+	}
+
 	image := docker.GetWorkerImage()
 
 	var serviceAccountName string

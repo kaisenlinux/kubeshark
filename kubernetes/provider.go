@@ -3,17 +3,20 @@ package kubernetes
 import (
 	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strings"
 
+	"github.com/kubeshark/kubeshark/config"
 	"github.com/kubeshark/kubeshark/config/configStructs"
 	"github.com/kubeshark/kubeshark/docker"
 	"github.com/kubeshark/kubeshark/misc"
 	"github.com/kubeshark/kubeshark/semver"
+	"github.com/kubeshark/kubeshark/utils"
 	"github.com/rs/zerolog/log"
 	auth "k8s.io/api/authorization/v1"
 	core "k8s.io/api/core/v1"
@@ -25,10 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/apimachinery/pkg/watch"
-	applyconfapp "k8s.io/client-go/applyconfigurations/apps/v1"
-	applyconfcore "k8s.io/client-go/applyconfigurations/core/v1"
-	v1 "k8s.io/client-go/applyconfigurations/core/v1"
-	applyconfmeta "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
@@ -111,14 +110,6 @@ func NewProviderInCluster() (*Provider, error) {
 	}, nil
 }
 
-func (provider *Provider) CurrentNamespace() (string, error) {
-	if provider.kubernetesConfig == nil {
-		return "", errors.New("kubernetesConfig is nil, The CLI will not work with in-cluster kubernetes config, use a kubeconfig file when initializing the Provider")
-	}
-	ns, _, err := provider.kubernetesConfig.Namespace()
-	return ns, err
-}
-
 func (provider *Provider) WaitUtilNamespaceDeleted(ctx context.Context, name string) error {
 	fieldSelector := fmt.Sprintf("metadata.name=%s", name)
 	var limit int64 = 1
@@ -159,14 +150,21 @@ func (provider *Provider) WaitUtilNamespaceDeleted(ctx context.Context, name str
 	return err
 }
 
-func (provider *Provider) CreateNamespace(ctx context.Context, name string) (*core.Namespace, error) {
-	namespaceSpec := &core.Namespace{
+func (provider *Provider) BuildNamespace(name string) *core.Namespace {
+	return &core.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Namespace",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: buildWithDefaultLabels(map[string]string{}, provider),
 		},
 	}
-	return provider.clientSet.CoreV1().Namespaces().Create(ctx, namespaceSpec, metav1.CreateOptions{})
+}
+
+func (provider *Provider) CreateNamespace(ctx context.Context, namespace *core.Namespace) (*core.Namespace, error) {
+	return provider.clientSet.CoreV1().Namespaces().Create(ctx, namespace, metav1.CreateOptions{})
 }
 
 type PodOptions struct {
@@ -174,28 +172,28 @@ type PodOptions struct {
 	PodName            string
 	PodImage           string
 	ServiceAccountName string
-	Resources          configStructs.Resources
+	Resources          configStructs.ResourceRequirements
 	ImagePullPolicy    core.PullPolicy
 	ImagePullSecrets   []core.LocalObjectReference
 	Debug              bool
 }
 
 func (provider *Provider) BuildHubPod(opts *PodOptions) (*core.Pod, error) {
-	cpuLimit, err := resource.ParseQuantity(opts.Resources.CpuLimit)
+	cpuLimit, err := resource.ParseQuantity(opts.Resources.Limits.CPU)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cpu limit for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid cpu limit for %s pod", opts.PodName)
 	}
-	memLimit, err := resource.ParseQuantity(opts.Resources.MemoryLimit)
+	memLimit, err := resource.ParseQuantity(opts.Resources.Limits.Memory)
 	if err != nil {
-		return nil, fmt.Errorf("invalid memory limit for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid memory limit for %s pod", opts.PodName)
 	}
-	cpuRequests, err := resource.ParseQuantity(opts.Resources.CpuRequests)
+	cpuRequests, err := resource.ParseQuantity(opts.Resources.Requests.CPU)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cpu request for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid cpu request for %s pod", opts.PodName)
 	}
-	memRequests, err := resource.ParseQuantity(opts.Resources.MemoryRequests)
+	memRequests, err := resource.ParseQuantity(opts.Resources.Requests.Memory)
 	if err != nil {
-		return nil, fmt.Errorf("invalid memory request for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid memory request for %s pod", opts.PodName)
 	}
 
 	command := []string{
@@ -204,6 +202,25 @@ func (provider *Provider) BuildHubPod(opts *PodOptions) (*core.Pod, error) {
 
 	if opts.Debug {
 		command = append(command, "-debug")
+	}
+
+	// Scripting environment variables
+	scriptingEnvMarshalled, err := json.Marshal(config.Config.Scripting.Env)
+	if err != nil {
+		return nil, err
+	}
+
+	// Scripting scripts
+	scripts, err := config.Config.Scripting.GetScripts()
+	if err != nil {
+		return nil, err
+	}
+	if scripts == nil {
+		scripts = []*misc.Script{}
+	}
+	scriptsMarshalled, err := json.Marshal(scripts)
+	if err != nil {
+		return nil, err
 	}
 
 	containers := []core.Container{
@@ -222,57 +239,82 @@ func (provider *Provider) BuildHubPod(opts *PodOptions) (*core.Pod, error) {
 					"memory": memRequests,
 				},
 			},
+			Env: []core.EnvVar{
+				{
+					Name:  "POD_REGEX",
+					Value: config.Config.Tap.PodRegexStr,
+				},
+				{
+					Name:  "NAMESPACES",
+					Value: strings.Join(provider.GetNamespaces(), ","),
+				},
+				{
+					Name:  "LICENSE",
+					Value: config.Config.License,
+				},
+				{
+					Name:  "SCRIPTING_ENV",
+					Value: string(scriptingEnvMarshalled),
+				},
+				{
+					Name:  "SCRIPTING_SCRIPTS",
+					Value: string(scriptsMarshalled),
+				},
+			},
 		},
 	}
 
 	pod := &core.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: opts.PodName,
+			Name:      opts.PodName,
+			Namespace: config.Config.Tap.SelfNamespace,
 			Labels: buildWithDefaultLabels(map[string]string{
 				"app": opts.PodName,
 			}, provider),
 		},
 		Spec: core.PodSpec{
+			ServiceAccountName:            ServiceAccountName,
 			Containers:                    containers,
 			DNSPolicy:                     core.DNSClusterFirstWithHostNet,
 			TerminationGracePeriodSeconds: new(int64),
-			Tolerations: []core.Toleration{
-				{
-					Operator: core.TolerationOpExists,
-					Effect:   core.TaintEffectNoExecute,
-				},
-				{
-					Operator: core.TolerationOpExists,
-					Effect:   core.TaintEffectNoSchedule,
-				},
-			},
-			ImagePullSecrets: opts.ImagePullSecrets,
+			Tolerations:                   provider.BuildTolerations(),
+			ImagePullSecrets:              opts.ImagePullSecrets,
 		},
 	}
 
-	//define the service account only when it exists to prevent pod crash
-	if opts.ServiceAccountName != "" {
-		pod.Spec.ServiceAccountName = opts.ServiceAccountName
+	if len(config.Config.Tap.NodeSelectorTerms) > 0 {
+		pod.Spec.Affinity = &core.Affinity{
+			NodeAffinity: &core.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{
+					NodeSelectorTerms: config.Config.Tap.NodeSelectorTerms,
+				},
+			},
+		}
 	}
+
 	return pod, nil
 }
 
 func (provider *Provider) BuildFrontPod(opts *PodOptions, hubHost string, hubPort string) (*core.Pod, error) {
-	cpuLimit, err := resource.ParseQuantity(opts.Resources.CpuLimit)
+	cpuLimit, err := resource.ParseQuantity(opts.Resources.Limits.CPU)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cpu limit for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid cpu limit for %s pod", opts.PodName)
 	}
-	memLimit, err := resource.ParseQuantity(opts.Resources.MemoryLimit)
+	memLimit, err := resource.ParseQuantity(opts.Resources.Limits.Memory)
 	if err != nil {
-		return nil, fmt.Errorf("invalid memory limit for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid memory limit for %s pod", opts.PodName)
 	}
-	cpuRequests, err := resource.ParseQuantity(opts.Resources.CpuRequests)
+	cpuRequests, err := resource.ParseQuantity(opts.Resources.Requests.CPU)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cpu request for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid cpu request for %s pod", opts.PodName)
 	}
-	memRequests, err := resource.ParseQuantity(opts.Resources.MemoryRequests)
+	memRequests, err := resource.ParseQuantity(opts.Resources.Requests.Memory)
 	if err != nil {
-		return nil, fmt.Errorf("invalid memory request for %s container", opts.PodName)
+		return nil, fmt.Errorf("invalid memory request for %s pod", opts.PodName)
 	}
 
 	volumeMounts := []core.VolumeMount{}
@@ -323,35 +365,38 @@ func (provider *Provider) BuildFrontPod(opts *PodOptions, hubHost string, hubPor
 	}
 
 	pod := &core.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: opts.PodName,
+			Name:      opts.PodName,
+			Namespace: config.Config.Tap.SelfNamespace,
 			Labels: buildWithDefaultLabels(map[string]string{
 				"app": opts.PodName,
 			}, provider),
 		},
 		Spec: core.PodSpec{
+			ServiceAccountName:            ServiceAccountName,
 			Containers:                    containers,
 			Volumes:                       volumes,
 			DNSPolicy:                     core.DNSClusterFirstWithHostNet,
 			TerminationGracePeriodSeconds: new(int64),
-			Tolerations: []core.Toleration{
-				{
-					Operator: core.TolerationOpExists,
-					Effect:   core.TaintEffectNoExecute,
-				},
-				{
-					Operator: core.TolerationOpExists,
-					Effect:   core.TaintEffectNoSchedule,
-				},
-			},
-			ImagePullSecrets: opts.ImagePullSecrets,
+			Tolerations:                   provider.BuildTolerations(),
+			ImagePullSecrets:              opts.ImagePullSecrets,
 		},
 	}
 
-	//define the service account only when it exists to prevent pod crash
-	if opts.ServiceAccountName != "" {
-		pod.Spec.ServiceAccountName = opts.ServiceAccountName
+	if len(config.Config.Tap.NodeSelectorTerms) > 0 {
+		pod.Spec.Affinity = &core.Affinity{
+			NodeAffinity: &core.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{
+					NodeSelectorTerms: config.Config.Tap.NodeSelectorTerms,
+				},
+			},
+		}
 	}
+
 	return pod, nil
 }
 
@@ -359,25 +404,58 @@ func (provider *Provider) CreatePod(ctx context.Context, namespace string, podSp
 	return provider.clientSet.CoreV1().Pods(namespace).Create(ctx, podSpec, metav1.CreateOptions{})
 }
 
-func (provider *Provider) CreateService(ctx context.Context, namespace string, serviceName string, appLabelValue string, targetPort int, port int32) (*core.Service, error) {
-	service := core.Service{
+func (provider *Provider) BuildHubService(namespace string) *core.Service {
+	return &core.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   serviceName,
-			Labels: buildWithDefaultLabels(map[string]string{}, provider),
+			Name:      HubServiceName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels:    buildWithDefaultLabels(map[string]string{}, provider),
 		},
 		Spec: core.ServiceSpec{
 			Ports: []core.ServicePort{
 				{
-					Name:       serviceName,
-					TargetPort: intstr.FromInt(targetPort),
-					Port:       port,
+					Name:       HubServiceName,
+					TargetPort: intstr.FromInt(80),
+					Port:       80,
 				},
 			},
 			Type:     core.ServiceTypeClusterIP,
-			Selector: map[string]string{"app": appLabelValue},
+			Selector: map[string]string{"app": HubServiceName},
 		},
 	}
-	return provider.clientSet.CoreV1().Services(namespace).Create(ctx, &service, metav1.CreateOptions{})
+}
+
+func (provider *Provider) BuildFrontService(namespace string) *core.Service {
+	return &core.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      FrontServiceName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels:    buildWithDefaultLabels(map[string]string{}, provider),
+		},
+		Spec: core.ServiceSpec{
+			Ports: []core.ServicePort{
+				{
+					Name:       FrontServiceName,
+					TargetPort: intstr.FromInt(80),
+					Port:       80,
+				},
+			},
+			Type:     core.ServiceTypeClusterIP,
+			Selector: map[string]string{"app": FrontServiceName},
+		},
+	}
+}
+
+func (provider *Provider) CreateService(ctx context.Context, namespace string, service *core.Service) (*core.Service, error) {
+	return provider.clientSet.CoreV1().Services(namespace).Create(ctx, service, metav1.CreateOptions{})
 }
 
 func (provider *Provider) CanI(ctx context.Context, namespace string, resource string, verb string, group string) (bool, error) {
@@ -448,50 +526,91 @@ func (provider *Provider) doesResourceExist(resource interface{}, err error) (bo
 	return resource != nil, nil
 }
 
-func (provider *Provider) CreateSelfRBAC(ctx context.Context, namespace string, serviceAccountName string, clusterRoleName string, clusterRoleBindingName string, version string, resources []string) error {
-	serviceAccount := &core.ServiceAccount{
+func (provider *Provider) BuildServiceAccount() *core.ServiceAccount {
+	return &core.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ServiceAccount",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: serviceAccountName,
+			Name:      ServiceAccountName,
+			Namespace: config.Config.Tap.SelfNamespace,
 			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
 			}, provider),
 		},
 	}
-	clusterRole := &rbac.ClusterRole{
+}
+
+func (provider *Provider) BuildClusterRole() *rbac.ClusterRole {
+	return &rbac.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRole",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: clusterRoleName,
+			Name:      ClusterRoleName,
+			Namespace: config.Config.Tap.SelfNamespace,
 			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
 			}, provider),
 		},
 		Rules: []rbac.PolicyRule{
 			{
-				APIGroups: []string{"", "extensions", "apps"},
-				Resources: resources,
-				Verbs:     []string{"list", "get", "watch"},
+				APIGroups: []string{
+					"",
+					"extensions",
+					"apps",
+				},
+				Resources: []string{
+					"pods",
+					"services",
+					"endpoints",
+					"persistentvolumeclaims",
+				},
+				Verbs: []string{
+					"list",
+					"get",
+					"watch",
+				},
 			},
 		},
 	}
-	clusterRoleBinding := &rbac.ClusterRoleBinding{
+}
+
+func (provider *Provider) BuildClusterRoleBinding() *rbac.ClusterRoleBinding {
+	return &rbac.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRoleBinding",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: clusterRoleBindingName,
+			Name:      ClusterRoleBindingName,
+			Namespace: config.Config.Tap.SelfNamespace,
 			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
 			}, provider),
 		},
 		RoleRef: rbac.RoleRef{
-			Name:     clusterRoleName,
+			Name:     ClusterRoleName,
 			Kind:     "ClusterRole",
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 		Subjects: []rbac.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Name:      serviceAccountName,
-				Namespace: namespace,
+				Name:      ServiceAccountName,
+				Namespace: config.Config.Tap.SelfNamespace,
 			},
 		},
 	}
+}
+
+func (provider *Provider) CreateSelfRBAC(ctx context.Context, namespace string) error {
+	serviceAccount := provider.BuildServiceAccount()
+	clusterRole := provider.BuildClusterRole()
+	clusterRoleBinding := provider.BuildClusterRoleBinding()
+
 	_, err := provider.clientSet.CoreV1().ServiceAccounts(namespace).Create(ctx, serviceAccount, metav1.CreateOptions{})
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
 		return err
@@ -501,65 +620,6 @@ func (provider *Provider) CreateSelfRBAC(ctx context.Context, namespace string, 
 		return err
 	}
 	_, err = provider.clientSet.RbacV1().ClusterRoleBindings().Create(ctx, clusterRoleBinding, metav1.CreateOptions{})
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return err
-	}
-	return nil
-}
-
-func (provider *Provider) CreateSelfRBACNamespaceRestricted(ctx context.Context, namespace string, serviceAccountName string, roleName string, roleBindingName string, version string) error {
-	serviceAccount := &core.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: serviceAccountName,
-			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
-			}, provider),
-		},
-	}
-	role := &rbac.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: roleName,
-			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
-			}, provider),
-		},
-		Rules: []rbac.PolicyRule{
-			{
-				APIGroups: []string{"", "extensions", "apps"},
-				Resources: []string{"pods", "services", "endpoints"},
-				Verbs:     []string{"list", "get", "watch"},
-			},
-		},
-	}
-	roleBinding := &rbac.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: roleBindingName,
-			Labels: buildWithDefaultLabels(map[string]string{
-				fmt.Sprintf("%s-cli-version", misc.Program): version,
-			}, provider),
-		},
-		RoleRef: rbac.RoleRef{
-			Name:     roleName,
-			Kind:     "Role",
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-		Subjects: []rbac.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      serviceAccountName,
-				Namespace: namespace,
-			},
-		},
-	}
-	_, err := provider.clientSet.CoreV1().ServiceAccounts(namespace).Create(ctx, serviceAccount, metav1.CreateOptions{})
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return err
-	}
-	_, err = provider.clientSet.RbacV1().Roles(namespace).Create(ctx, role, metav1.CreateOptions{})
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return err
-	}
-	_, err = provider.clientSet.RbacV1().RoleBindings(namespace).Create(ctx, roleBinding, metav1.CreateOptions{})
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
 		return err
 	}
@@ -611,6 +671,11 @@ func (provider *Provider) RemoveService(ctx context.Context, namespace string, s
 	return provider.handleRemovalError(err)
 }
 
+func (provider *Provider) RemovePersistentVolumeClaim(ctx context.Context, namespace string, persistentVolumeClaimName string) error {
+	err := provider.clientSet.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, persistentVolumeClaimName, metav1.DeleteOptions{})
+	return provider.handleRemovalError(err)
+}
+
 func (provider *Provider) RemoveDaemonSet(ctx context.Context, namespace string, daemonSetName string) error {
 	err := provider.clientSet.AppsV1().DaemonSets(namespace).Delete(ctx, daemonSetName, metav1.DeleteOptions{})
 	return provider.handleRemovalError(err)
@@ -626,14 +691,290 @@ func (provider *Provider) handleRemovalError(err error) error {
 	return err
 }
 
+func (provider *Provider) BuildPersistentVolumeClaim() (*core.PersistentVolumeClaim, error) {
+	capacity, err := resource.ParseQuantity(config.Config.Tap.StorageLimit)
+	if err != nil {
+		return nil, fmt.Errorf("invalid capacity for the workers: %s", config.Config.Tap.StorageLimit)
+	}
+
+	storageClassName := config.Config.Tap.StorageClass
+
+	return &core.PersistentVolumeClaim{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "PersistentVolumeClaim",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      PersistentVolumeClaimName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels: buildWithDefaultLabels(map[string]string{
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
+			}, provider),
+		},
+		Spec: core.PersistentVolumeClaimSpec{
+			Resources: core.ResourceRequirements{
+				Requests: core.ResourceList{
+					core.ResourceStorage: capacity,
+				},
+			},
+			AccessModes:      []core.PersistentVolumeAccessMode{core.ReadWriteMany},
+			StorageClassName: &storageClassName,
+		},
+	}, nil
+}
+
+func (provider *Provider) BuildWorkerDaemonSet(
+	podImage string,
+	podName string,
+	serviceAccountName string,
+	resources configStructs.ResourceRequirements,
+	imagePullPolicy core.PullPolicy,
+	imagePullSecrets []core.LocalObjectReference,
+	serviceMesh bool,
+	tls bool,
+	debug bool,
+) (*DaemonSet, error) {
+	// Resource limits
+	cpuLimit, err := resource.ParseQuantity(resources.Limits.CPU)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cpu limit for %s pod", podName)
+	}
+	memLimit, err := resource.ParseQuantity(resources.Limits.Memory)
+	if err != nil {
+		return nil, fmt.Errorf("invalid memory limit for %s pod", podName)
+	}
+	cpuRequests, err := resource.ParseQuantity(resources.Requests.CPU)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cpu request for %s pod", podName)
+	}
+	memRequests, err := resource.ParseQuantity(resources.Requests.Memory)
+	if err != nil {
+		return nil, fmt.Errorf("invalid memory request for %s pod", podName)
+	}
+
+	// Command
+	command := []string{
+		"./worker",
+		"-i",
+		"any",
+		"-port",
+		"8897",
+		"-packet-capture",
+		config.Config.Tap.PacketCapture,
+	}
+	if debug {
+		command = append(command, "-debug")
+	}
+	if serviceMesh {
+		command = append(command, "-servicemesh")
+	}
+	if tls {
+		command = append(command, "-tls")
+	}
+	if serviceMesh || tls {
+		command = append(command, "-procfs", procfsMountPath)
+	}
+
+	// Linux capabilities
+	dropCaps := []core.Capability{"ALL"}
+	addCaps := []core.Capability{"NET_RAW", "NET_ADMIN"} // to listen to traffic using libpcap
+	if serviceMesh || tls {
+		addCaps = append(addCaps, "SYS_ADMIN")  // to read /proc/PID/net/ns + to install eBPF programs (kernel < 5.8)
+		addCaps = append(addCaps, "SYS_PTRACE") // to set netns to other process + to open libssl.so of other process
+
+		if serviceMesh {
+			addCaps = append(addCaps, "DAC_OVERRIDE") // to read /proc/PID/environ
+		}
+
+		if tls {
+			addCaps = append(addCaps, "SYS_RESOURCE") // to change rlimits for eBPF
+		}
+	}
+
+	// Environment variables
+	var env []core.EnvVar
+	if debug {
+		env = append(env, core.EnvVar{
+			Name:  "MEMORY_PROFILING_ENABLED",
+			Value: "true",
+		})
+		env = append(env, core.EnvVar{
+			Name:  "MEMORY_PROFILING_INTERVAL_SECONDS",
+			Value: "10",
+		})
+		env = append(env, core.EnvVar{
+			Name:  "MEMORY_USAGE_INTERVAL_MILLISECONDS",
+			Value: "500",
+		})
+	}
+
+	// Volumes and volume mounts
+
+	// Host procfs is needed inside the container because we need access to
+	// the network namespaces of processes on the machine.
+	procfsVolume := core.Volume{
+		Name: procfsVolumeName,
+		VolumeSource: core.VolumeSource{
+			HostPath: &core.HostPathVolumeSource{
+				Path: "/proc",
+			},
+		},
+	}
+	procfsVolumeMount := core.VolumeMount{
+		Name:      procfsVolumeName,
+		MountPath: procfsMountPath,
+		ReadOnly:  true,
+	}
+
+	// We need access to /sys in order to install certain eBPF tracepoints
+	sysfsVolume := core.Volume{
+		Name: sysfsVolumeName,
+		VolumeSource: core.VolumeSource{
+			HostPath: &core.HostPathVolumeSource{
+				Path: "/sys",
+			},
+		},
+	}
+	sysfsVolumeMount := core.VolumeMount{
+		Name:      sysfsVolumeName,
+		MountPath: sysfsMountPath,
+		ReadOnly:  true,
+	}
+
+	// Persistent volume and its mount
+	persistentVolume := core.Volume{
+		Name: PersistentVolumeName,
+		VolumeSource: core.VolumeSource{
+			PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+				ClaimName: PersistentVolumeClaimName,
+			},
+		},
+	}
+	persistentVolumeMount := core.VolumeMount{
+		Name:      PersistentVolumeName,
+		MountPath: PersistentVolumeHostPath,
+	}
+
+	// Containers
+	containers := []core.Container{
+		{
+			Name:            podName,
+			Image:           podImage,
+			ImagePullPolicy: imagePullPolicy,
+			VolumeMounts: []core.VolumeMount{
+				procfsVolumeMount,
+				sysfsVolumeMount,
+				persistentVolumeMount,
+			},
+			Command: command,
+			Resources: core.ResourceRequirements{
+				Limits: core.ResourceList{
+					"cpu":    cpuLimit,
+					"memory": memLimit,
+				},
+				Requests: core.ResourceList{
+					"cpu":    cpuRequests,
+					"memory": memRequests,
+				},
+			},
+			SecurityContext: &core.SecurityContext{
+				Capabilities: &core.Capabilities{
+					Add:  addCaps,
+					Drop: dropCaps,
+				},
+			},
+			Env: env,
+		},
+	}
+
+	// Pod
+	pod := DaemonSetPod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels: buildWithDefaultLabels(map[string]string{
+				"app": podName,
+			}, provider),
+		},
+		Spec: core.PodSpec{
+			ServiceAccountName: ServiceAccountName,
+			HostNetwork:        true,
+			Containers:         containers,
+			Volumes: []core.Volume{
+				procfsVolume,
+				sysfsVolume,
+				persistentVolume,
+			},
+			DNSPolicy:                     core.DNSClusterFirstWithHostNet,
+			TerminationGracePeriodSeconds: new(int64),
+			Tolerations:                   provider.BuildTolerations(),
+			ImagePullSecrets:              imagePullSecrets,
+		},
+	}
+
+	if len(config.Config.Tap.NodeSelectorTerms) > 0 {
+		pod.Spec.Affinity = &core.Affinity{
+			NodeAffinity: &core.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{
+					NodeSelectorTerms: config.Config.Tap.NodeSelectorTerms,
+				},
+			},
+		}
+	}
+
+	return &DaemonSet{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "DaemonSet",
+			APIVersion: "apps/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels: buildWithDefaultLabels(map[string]string{
+				"app": podName,
+			}, provider),
+		},
+		Spec: DaemonSetSpec{
+			Selector: metav1.LabelSelector{
+				MatchLabels: buildWithDefaultLabels(map[string]string{
+					"app": podName,
+				}, provider),
+			},
+			Template: pod,
+		},
+	}, nil
+}
+
+func (provider *Provider) BuildTolerations() []core.Toleration {
+	tolerations := []core.Toleration{
+		{
+			Operator: core.TolerationOpExists,
+			Effect:   core.TaintEffectNoExecute,
+		},
+	}
+
+	if !config.Config.Tap.IgnoreTainted {
+		tolerations = append(tolerations, core.Toleration{
+			Operator: core.TolerationOpExists,
+			Effect:   core.TaintEffectNoSchedule,
+		})
+	}
+
+	return tolerations
+}
+
+func (provider *Provider) CreatePersistentVolumeClaim(ctx context.Context, namespace string, persistentVolumeClaim *core.PersistentVolumeClaim) (*core.PersistentVolumeClaim, error) {
+	return provider.clientSet.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, persistentVolumeClaim, metav1.CreateOptions{})
+}
+
 func (provider *Provider) ApplyWorkerDaemonSet(
 	ctx context.Context,
 	namespace string,
 	daemonSetName string,
 	podImage string,
-	workerPodName string,
+	podName string,
 	serviceAccountName string,
-	resources configStructs.Resources,
+	resources configStructs.ResourceRequirements,
 	imagePullPolicy core.PullPolicy,
 	imagePullSecrets []core.LocalObjectReference,
 	serviceMesh bool,
@@ -644,203 +985,39 @@ func (provider *Provider) ApplyWorkerDaemonSet(
 		Str("namespace", namespace).
 		Str("daemonset-name", daemonSetName).
 		Str("image", podImage).
-		Str("pod", workerPodName).
+		Str("pod", podName).
 		Msg("Applying worker DaemonSets.")
 
-	command := []string{"./worker", "-i", "any", "-port", "8897"}
-
-	if debug {
-		command = append(command, "-debug")
-	}
-
-	if serviceMesh {
-		command = append(command, "-servicemesh")
-	}
-
-	if tls {
-		command = append(command, "-tls")
-	}
-
-	if serviceMesh || tls {
-		command = append(command, "-procfs", procfsMountPath)
-	}
-
-	workerContainer := applyconfcore.Container()
-	workerContainer.WithName(workerPodName)
-	workerContainer.WithImage(podImage)
-	workerContainer.WithImagePullPolicy(imagePullPolicy)
-
-	caps := applyconfcore.Capabilities().WithDrop("ALL")
-
-	caps = caps.WithAdd("NET_RAW").WithAdd("NET_ADMIN") // to listen to traffic using libpcap
-
-	if serviceMesh || tls {
-		caps = caps.WithAdd("SYS_ADMIN")  // to read /proc/PID/net/ns + to install eBPF programs (kernel < 5.8)
-		caps = caps.WithAdd("SYS_PTRACE") // to set netns to other process + to open libssl.so of other process
-
-		if serviceMesh {
-			caps = caps.WithAdd("DAC_OVERRIDE") // to read /proc/PID/environ
-		}
-
-		if tls {
-			caps = caps.WithAdd("SYS_RESOURCE") // to change rlimits for eBPF
-		}
-	}
-
-	workerContainer.WithSecurityContext(applyconfcore.SecurityContext().WithCapabilities(caps))
-
-	workerContainer.WithCommand(command...)
-
-	var envvars []*v1.EnvVarApplyConfiguration
-
-	// Worker build with -race flag requires the GODEBUG=netdns=go
-	// envvars = append(envvars, applyconfcore.EnvVar().WithName("GODEBUG").WithValue("netdns=go"))
-
-	if debug {
-		envvars = append(envvars, applyconfcore.EnvVar().WithName("MEMORY_PROFILING_ENABLED").WithValue("true"))
-		envvars = append(envvars, applyconfcore.EnvVar().WithName("MEMORY_PROFILING_INTERVAL_SECONDS").WithValue("10"))
-		envvars = append(envvars, applyconfcore.EnvVar().WithName("MEMORY_USAGE_INTERVAL_MILLISECONDS").WithValue("500"))
-	}
-
-	workerContainer.WithEnv(envvars...)
-
-	cpuLimit, err := resource.ParseQuantity(resources.CpuLimit)
+	daemonSet, err := provider.BuildWorkerDaemonSet(
+		podImage,
+		podName,
+		serviceAccountName,
+		resources,
+		imagePullPolicy,
+		imagePullSecrets,
+		serviceMesh,
+		tls,
+		debug,
+	)
 	if err != nil {
-		return fmt.Errorf("invalid cpu limit for %s container", workerPodName)
+		return err
 	}
-	memLimit, err := resource.ParseQuantity(resources.MemoryLimit)
-	if err != nil {
-		return fmt.Errorf("invalid memory limit for %s container", workerPodName)
-	}
-	cpuRequests, err := resource.ParseQuantity(resources.CpuRequests)
-	if err != nil {
-		return fmt.Errorf("invalid cpu request for %s container", workerPodName)
-	}
-	memRequests, err := resource.ParseQuantity(resources.MemoryRequests)
-	if err != nil {
-		return fmt.Errorf("invalid memory request for %s container", workerPodName)
-	}
-	workerResourceLimits := core.ResourceList{
-		"cpu":    cpuLimit,
-		"memory": memLimit,
-	}
-	workerResourceRequests := core.ResourceList{
-		"cpu":    cpuRequests,
-		"memory": memRequests,
-	}
-	workerResources := applyconfcore.ResourceRequirements().WithRequests(workerResourceRequests).WithLimits(workerResourceLimits)
-	workerContainer.WithResources(workerResources)
-
-	nodeAffinity := applyconfcore.NodeAffinity()
-	affinity := applyconfcore.Affinity()
-	affinity.WithNodeAffinity(nodeAffinity)
-
-	noExecuteToleration := applyconfcore.Toleration()
-	noExecuteToleration.WithOperator(core.TolerationOpExists)
-	noExecuteToleration.WithEffect(core.TaintEffectNoExecute)
-	noScheduleToleration := applyconfcore.Toleration()
-	noScheduleToleration.WithOperator(core.TolerationOpExists)
-	noScheduleToleration.WithEffect(core.TaintEffectNoSchedule)
-
-	// Host procfs is needed inside the container because we need access to
-	//	the network namespaces of processes on the machine.
-	//
-	procfsVolume := applyconfcore.Volume()
-	procfsVolume.WithName(procfsVolumeName).WithHostPath(applyconfcore.HostPathVolumeSource().WithPath("/proc"))
-	procfsVolumeMount := applyconfcore.VolumeMount().WithName(procfsVolumeName).WithMountPath(procfsMountPath).WithReadOnly(true)
-	workerContainer.WithVolumeMounts(procfsVolumeMount)
-
-	// We need access to /sys in order to install certain eBPF tracepoints
-	//
-	sysfsVolume := applyconfcore.Volume()
-	sysfsVolume.WithName(sysfsVolumeName).WithHostPath(applyconfcore.HostPathVolumeSource().WithPath("/sys"))
-	sysfsVolumeMount := applyconfcore.VolumeMount().WithName(sysfsVolumeName).WithMountPath(sysfsMountPath).WithReadOnly(true)
-	workerContainer.WithVolumeMounts(sysfsVolumeMount)
-
-	podSpec := applyconfcore.PodSpec()
-	podSpec.WithHostNetwork(true)
-	podSpec.WithDNSPolicy(core.DNSClusterFirstWithHostNet)
-	podSpec.WithTerminationGracePeriodSeconds(0)
-	if serviceAccountName != "" {
-		podSpec.WithServiceAccountName(serviceAccountName)
-	}
-	podSpec.WithContainers(workerContainer)
-	podSpec.WithAffinity(affinity)
-	podSpec.WithTolerations(noExecuteToleration, noScheduleToleration)
-	podSpec.WithVolumes(procfsVolume, sysfsVolume)
-
-	if len(imagePullSecrets) > 0 {
-		localObjectReference := applyconfcore.LocalObjectReference()
-		for _, secret := range imagePullSecrets {
-			localObjectReference.WithName(secret.Name)
-		}
-		podSpec.WithImagePullSecrets(localObjectReference)
-	}
-
-	podTemplate := applyconfcore.PodTemplateSpec()
-	podTemplate.WithLabels(buildWithDefaultLabels(map[string]string{
-		"app": workerPodName,
-	}, provider))
-	podTemplate.WithSpec(podSpec)
-
-	labelSelector := applyconfmeta.LabelSelector()
-	labelSelector.WithMatchLabels(map[string]string{"app": workerPodName})
 
 	applyOptions := metav1.ApplyOptions{
 		Force:        true,
 		FieldManager: fieldManagerName,
 	}
 
-	daemonSet := applyconfapp.DaemonSet(daemonSetName, namespace)
-	daemonSet.
-		WithLabels(buildWithDefaultLabels(map[string]string{}, provider)).
-		WithSpec(applyconfapp.DaemonSetSpec().WithSelector(labelSelector).WithTemplate(podTemplate))
-
-	_, err = provider.clientSet.AppsV1().DaemonSets(namespace).Apply(ctx, daemonSet, applyOptions)
-	return err
-}
-
-func (provider *Provider) ResetWorkerDaemonSet(ctx context.Context, namespace string, daemonSetName string, podImage string, workerPodName string) error {
-	workerContainer := applyconfcore.Container()
-	workerContainer.WithName(workerPodName)
-	workerContainer.WithImage(podImage)
-
-	nodeSelectorRequirement := applyconfcore.NodeSelectorRequirement()
-	nodeSelectorRequirement.WithKey(fmt.Sprintf("%s-non-existing-label", misc.Program))
-	nodeSelectorRequirement.WithOperator(core.NodeSelectorOpExists)
-	nodeSelectorTerm := applyconfcore.NodeSelectorTerm()
-	nodeSelectorTerm.WithMatchExpressions(nodeSelectorRequirement)
-	nodeSelector := applyconfcore.NodeSelector()
-	nodeSelector.WithNodeSelectorTerms(nodeSelectorTerm)
-	nodeAffinity := applyconfcore.NodeAffinity()
-	nodeAffinity.WithRequiredDuringSchedulingIgnoredDuringExecution(nodeSelector)
-	affinity := applyconfcore.Affinity()
-	affinity.WithNodeAffinity(nodeAffinity)
-
-	podSpec := applyconfcore.PodSpec()
-	podSpec.WithContainers(workerContainer)
-	podSpec.WithAffinity(affinity)
-
-	podTemplate := applyconfcore.PodTemplateSpec()
-	podTemplate.WithLabels(buildWithDefaultLabels(map[string]string{
-		"app": workerPodName,
-	}, provider))
-	podTemplate.WithSpec(podSpec)
-
-	labelSelector := applyconfmeta.LabelSelector()
-	labelSelector.WithMatchLabels(map[string]string{"app": workerPodName})
-
-	applyOptions := metav1.ApplyOptions{
-		Force:        true,
-		FieldManager: fieldManagerName,
-	}
-
-	daemonSet := applyconfapp.DaemonSet(daemonSetName, namespace)
-	daemonSet.
-		WithLabels(buildWithDefaultLabels(map[string]string{}, provider)).
-		WithSpec(applyconfapp.DaemonSetSpec().WithSelector(labelSelector).WithTemplate(podTemplate))
-
-	_, err := provider.clientSet.AppsV1().DaemonSets(namespace).Apply(ctx, daemonSet, applyOptions)
+	_, err = provider.clientSet.AppsV1().DaemonSets(namespace).Apply(
+		ctx,
+		daemonSet.GenerateApplyConfiguration(
+			daemonSetName,
+			namespace,
+			podName,
+			provider,
+		),
+		applyOptions,
+	)
 	return err
 }
 
@@ -1002,6 +1179,14 @@ func (provider *Provider) GetKubernetesVersion() (*semver.SemVersion, error) {
 
 	serverVersionSemVer := semver.SemVersion(serverVersion.GitVersion)
 	return &serverVersionSemVer, nil
+}
+
+func (provider *Provider) GetNamespaces() []string {
+	if len(config.Config.Tap.Namespaces) > 0 {
+		return utils.Unique(config.Config.Tap.Namespaces)
+	} else {
+		return []string{K8sAllNamespaces}
+	}
 }
 
 func getClientSet(config *rest.Config) (*kubernetes.Clientset, error) {

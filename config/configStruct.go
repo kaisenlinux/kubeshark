@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	SelfNamespaceConfigName  = "selfnamespace"
 	KubeConfigPathConfigName = "kube-configpath"
 )
 
@@ -24,17 +23,20 @@ type KubeConfig struct {
 	Context       string `yaml:"context"`
 }
 
+type ManifestsConfig struct {
+	Dump bool `yaml:"dump"`
+}
+
 type ConfigStruct struct {
-	Tap            configStructs.TapConfig       `yaml:"tap"`
-	Logs           configStructs.LogsConfig      `yaml:"logs"`
-	Config         configStructs.ConfigConfig    `yaml:"config,omitempty"`
-	Kube           KubeConfig                    `yaml:"kube"`
-	SelfNamespace  string                        `yaml:"selfnamespace" default:"kubeshark"`
-	DumpLogs       bool                          `yaml:"dumplogs" default:"false"`
-	HeadlessMode   bool                          `yaml:"headless" default:"false"`
-	License        string                        `yaml:"license" default:""`
-	Scripting      configStructs.ScriptingConfig `yaml:"scripting"`
-	ResourceLabels map[string]string             `yaml:"resourceLabels" default:"{}"`
+	Tap          configStructs.TapConfig       `yaml:"tap"`
+	Logs         configStructs.LogsConfig      `yaml:"logs"`
+	Config       configStructs.ConfigConfig    `yaml:"config,omitempty"`
+	Kube         KubeConfig                    `yaml:"kube"`
+	DumpLogs     bool                          `yaml:"dumplogs" default:"false"`
+	HeadlessMode bool                          `yaml:"headless" default:"false"`
+	License      string                        `yaml:"license" default:""`
+	Scripting    configStructs.ScriptingConfig `yaml:"scripting"`
+	Manifests    ManifestsConfig               `yaml:"manifests,omitempty"`
 }
 
 func (config *ConfigStruct) ImagePullPolicy() v1.PullPolicy {
@@ -51,7 +53,7 @@ func (config *ConfigStruct) ImagePullSecrets() []v1.LocalObjectReference {
 }
 
 func (config *ConfigStruct) IsNsRestrictedMode() bool {
-	return config.SelfNamespace != misc.Program // Notice "kubeshark" string must match the default SelfNamespace
+	return config.Tap.SelfNamespace != misc.Program // Notice "kubeshark" string must match the default SelfNamespace
 }
 
 func (config *ConfigStruct) KubeConfigPath() string {

@@ -1,9 +1,9 @@
-kubeshark (39.4-1kaisen) kaisen-packages; urgency=medium
+kubeshark (40.1-1kaisen) kaisen-packages; urgency=medium
 
-  * Import the 39.4 version
-  * Update and rename the quilt patch
+  * Import the 40.1 version
+  * Update the quilt patch
 
- -- Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>  Sun, 19 Mar 2023 20:01:52 +0100
+ -- Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>  Tue, 09 May 2023 01:03:38 +0100
 
 kubeshark (38.1-1kaisen) kaisen-packages; urgency=medium
 

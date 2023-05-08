@@ -19,7 +19,7 @@ import (
 )
 
 func startProxyReportErrorIfAny(kubernetesProvider *kubernetes.Provider, ctx context.Context, serviceName string, podName string, proxyPortLabel string, srcPort uint16, dstPort uint16, healthCheck string) {
-	httpServer, err := kubernetes.StartProxy(kubernetesProvider, config.Config.Tap.Proxy.Host, srcPort, config.Config.SelfNamespace, serviceName)
+	httpServer, err := kubernetes.StartProxy(kubernetesProvider, config.Config.Tap.Proxy.Host, srcPort, config.Config.Tap.SelfNamespace, serviceName)
 	if err != nil {
 		log.Error().
 			Err(errormessage.FormatError(err)).
@@ -39,7 +39,7 @@ func startProxyReportErrorIfAny(kubernetesProvider *kubernetes.Provider, ctx con
 		}
 
 		podRegex, _ := regexp.Compile(podName)
-		if _, err := kubernetes.NewPortForward(kubernetesProvider, config.Config.SelfNamespace, podRegex, srcPort, dstPort, ctx); err != nil {
+		if _, err := kubernetes.NewPortForward(kubernetesProvider, config.Config.Tap.SelfNamespace, podRegex, srcPort, dstPort, ctx); err != nil {
 			log.Error().
 				Str("pod-regex", podRegex.String()).
 				Err(errormessage.FormatError(err)).
@@ -58,7 +58,7 @@ func startProxyReportErrorIfAny(kubernetesProvider *kubernetes.Provider, ctx con
 	}
 }
 
-func getKubernetesProviderForCli() (*kubernetes.Provider, error) {
+func getKubernetesProviderForCli(silent bool, dontCheckVersion bool) (*kubernetes.Provider, error) {
 	kubeConfigPath := config.Config.KubeConfigPath()
 	kubernetesProvider, err := kubernetes.NewProvider(kubeConfigPath, config.Config.Kube.Context)
 	if err != nil {
@@ -66,22 +66,26 @@ func getKubernetesProviderForCli() (*kubernetes.Provider, error) {
 		return nil, err
 	}
 
-	log.Info().Str("path", kubeConfigPath).Msg("Using kubeconfig:")
+	if !silent {
+		log.Info().Str("path", kubeConfigPath).Msg("Using kubeconfig:")
+	}
 
 	if err := kubernetesProvider.ValidateNotProxy(); err != nil {
 		handleKubernetesProviderError(err)
 		return nil, err
 	}
 
-	kubernetesVersion, err := kubernetesProvider.GetKubernetesVersion()
-	if err != nil {
-		handleKubernetesProviderError(err)
-		return nil, err
-	}
+	if !dontCheckVersion {
+		kubernetesVersion, err := kubernetesProvider.GetKubernetesVersion()
+		if err != nil {
+			handleKubernetesProviderError(err)
+			return nil, err
+		}
 
-	if err := kubernetes.ValidateKubernetesVersion(kubernetesVersion); err != nil {
-		handleKubernetesProviderError(err)
-		return nil, err
+		if err := kubernetes.ValidateKubernetesVersion(kubernetesVersion); err != nil {
+			handleKubernetesProviderError(err)
+			return nil, err
+		}
 	}
 
 	return kubernetesProvider, nil

@@ -9,10 +9,10 @@
     <a href="https://github.com/kubeshark/kubeshark/releases/latest">
         <img alt="GitHub Latest Release" src="https://img.shields.io/github/v/release/kubeshark/kubeshark?logo=GitHub&style=flat-square">
     </a>
-    <a href="https://hub.docker.com/r/kubeshark/kubeshark">
+    <a href="https://hub.docker.com/r/kubeshark/worker">
       <img alt="Docker pulls" src="https://img.shields.io/docker/pulls/kubeshark/kubeshark?color=%23099cec&logo=Docker&style=flat-square">
     </a>
-    <a href="https://hub.docker.com/r/kubeshark/kubeshark">
+    <a href="https://hub.docker.com/r/kubeshark/worker">
       <img alt="Image size" src="https://img.shields.io/docker/image-size/kubeshark/kubeshark/latest?logo=Docker&style=flat-square">
     </a>
 		<a href="https://discord.gg/WkvRGMUcx7">
@@ -25,7 +25,7 @@
 
 <p align="center">
   <b>
-  <span>NEW: </span><a href="https://github.com/kubeshark/kubeshark/releases/tag/39.3">Version 39.3</a> is out, introducing
+  <span>NEW: </span><a href="https://github.com/kubeshark/kubeshark/releases/tag/39.4">Version 39.4</a> is out, introducing
   <a href="https://docs.kubeshark.co/en/automation_scripting">Scripting</a>,
   <a href="https://docs.kubeshark.co/en/automation_hooks">L4/L7 hooks</a>, and so much more...
   </b>
@@ -43,10 +43,6 @@ Download **Kubeshark**'s binary distribution [latest release](https://github.com
 
 ```shell
 kubeshark tap
-```
-
-```shell
-kubeshark tap -A
 ```
 
 ```shell
