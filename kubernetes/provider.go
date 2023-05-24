@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog/log"
 	auth "k8s.io/api/authorization/v1"
 	core "k8s.io/api/core/v1"
+	networking "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -225,8 +226,12 @@ func (provider *Provider) BuildHubPod(opts *PodOptions) (*core.Pod, error) {
 
 	containers := []core.Container{
 		{
-			Name:            opts.PodName,
-			Image:           opts.PodImage,
+			Name:  opts.PodName,
+			Image: opts.PodImage,
+			Ports: []core.ContainerPort{{
+				HostPort:      int32(config.Config.Tap.Proxy.Hub.SrvPort),
+				ContainerPort: configStructs.ContainerPort,
+			}},
 			ImagePullPolicy: opts.ImagePullPolicy,
 			Command:         command,
 			Resources: core.ResourceRequirements{
@@ -259,6 +264,10 @@ func (provider *Provider) BuildHubPod(opts *PodOptions) (*core.Pod, error) {
 				{
 					Name:  "SCRIPTING_SCRIPTS",
 					Value: string(scriptsMarshalled),
+				},
+				{
+					Name:  "AUTH_APPROVED_DOMAINS",
+					Value: strings.Join(config.Config.Tap.Ingress.Auth.ApprovedDomains, ","),
 				},
 			},
 		},
@@ -320,17 +329,25 @@ func (provider *Provider) BuildFrontPod(opts *PodOptions, hubHost string, hubPor
 	volumeMounts := []core.VolumeMount{}
 	volumes := []core.Volume{}
 
+	if config.Config.Tap.Ingress.Enabled {
+		hubPort = "80/api"
+	}
+
 	containers := []core.Container{
 		{
-			Name:            opts.PodName,
-			Image:           docker.GetFrontImage(),
+			Name:  opts.PodName,
+			Image: docker.GetFrontImage(),
+			Ports: []core.ContainerPort{{
+				HostPort:      int32(config.Config.Tap.Proxy.Front.SrvPort),
+				ContainerPort: configStructs.ContainerPort,
+			}},
 			ImagePullPolicy: opts.ImagePullPolicy,
 			VolumeMounts:    volumeMounts,
 			ReadinessProbe: &core.Probe{
 				FailureThreshold: 3,
 				ProbeHandler: core.ProbeHandler{
 					TCPSocket: &core.TCPSocketAction{
-						Port: intstr.Parse("80"),
+						Port: intstr.Parse(configStructs.ContainerPortStr),
 					},
 				},
 				PeriodSeconds:    1,
@@ -419,11 +436,11 @@ func (provider *Provider) BuildHubService(namespace string) *core.Service {
 			Ports: []core.ServicePort{
 				{
 					Name:       HubServiceName,
-					TargetPort: intstr.FromInt(80),
-					Port:       80,
+					TargetPort: intstr.FromInt(configStructs.ContainerPort),
+					Port:       configStructs.ContainerPort,
 				},
 			},
-			Type:     core.ServiceTypeClusterIP,
+			Type:     core.ServiceTypeNodePort,
 			Selector: map[string]string{"app": HubServiceName},
 		},
 	}
@@ -444,14 +461,22 @@ func (provider *Provider) BuildFrontService(namespace string) *core.Service {
 			Ports: []core.ServicePort{
 				{
 					Name:       FrontServiceName,
-					TargetPort: intstr.FromInt(80),
-					Port:       80,
+					TargetPort: intstr.FromInt(configStructs.ContainerPort),
+					Port:       configStructs.ContainerPort,
 				},
 			},
-			Type:     core.ServiceTypeClusterIP,
+			Type:     core.ServiceTypeNodePort,
 			Selector: map[string]string{"app": FrontServiceName},
 		},
 	}
+}
+
+func (provider *Provider) CreateIngressClass(ctx context.Context, ingressClass *networking.IngressClass) (*networking.IngressClass, error) {
+	return provider.clientSet.NetworkingV1().IngressClasses().Create(ctx, ingressClass, metav1.CreateOptions{})
+}
+
+func (provider *Provider) CreateIngress(ctx context.Context, namespace string, ingress *networking.Ingress) (*networking.Ingress, error) {
+	return provider.clientSet.NetworkingV1().Ingresses(namespace).Create(ctx, ingress, metav1.CreateOptions{})
 }
 
 func (provider *Provider) CreateService(ctx context.Context, namespace string, service *core.Service) (*core.Service, error) {
@@ -526,6 +551,87 @@ func (provider *Provider) doesResourceExist(resource interface{}, err error) (bo
 	return resource != nil, nil
 }
 
+func (provider *Provider) BuildIngressClass() *networking.IngressClass {
+	return &networking.IngressClass{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "IngressClass",
+			APIVersion: "networking.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      IngressClassName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels: buildWithDefaultLabels(map[string]string{
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
+			}, provider),
+		},
+		Spec: networking.IngressClassSpec{
+			Controller: "k8s.io/ingress-nginx",
+		},
+	}
+}
+
+func (provider *Provider) BuildIngress() *networking.Ingress {
+	pathTypePrefix := networking.PathTypePrefix
+	ingressClassName := IngressClassName
+
+	return &networking.Ingress{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Ingress",
+			APIVersion: "networking.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      IngressName,
+			Namespace: config.Config.Tap.SelfNamespace,
+			Labels: buildWithDefaultLabels(map[string]string{
+				fmt.Sprintf("%s-cli-version", misc.Program): misc.RBACVersion,
+			}, provider),
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+				"certmanager.k8s.io/cluster-issuer":          config.Config.Tap.Ingress.CertManager,
+			},
+		},
+		Spec: networking.IngressSpec{
+			IngressClassName: &ingressClassName,
+			TLS:              config.Config.Tap.Ingress.TLS,
+			Rules: []networking.IngressRule{
+				{
+					Host: config.Config.Tap.Ingress.Host,
+					IngressRuleValue: networking.IngressRuleValue{
+						HTTP: &networking.HTTPIngressRuleValue{
+							Paths: []networking.HTTPIngressPath{
+								{
+									Path:     "/api(/|$)(.*)",
+									PathType: &pathTypePrefix,
+									Backend: networking.IngressBackend{
+										Service: &networking.IngressServiceBackend{
+											Name: HubServiceName,
+											Port: networking.ServiceBackendPort{
+												Number: configStructs.ContainerPort,
+											},
+										},
+									},
+								},
+								{
+									Path:     "/()(.*)",
+									PathType: &pathTypePrefix,
+									Backend: networking.IngressBackend{
+										Service: &networking.IngressServiceBackend{
+											Name: FrontServiceName,
+											Port: networking.ServiceBackendPort{
+												Number: configStructs.ContainerPort,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func (provider *Provider) BuildServiceAccount() *core.ServiceAccount {
 	return &core.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
@@ -567,6 +673,7 @@ func (provider *Provider) BuildClusterRole() *rbac.ClusterRole {
 					"services",
 					"endpoints",
 					"persistentvolumeclaims",
+					"ingresses",
 				},
 				Verbs: []string{
 					"list",
@@ -624,6 +731,11 @@ func (provider *Provider) CreateSelfRBAC(ctx context.Context, namespace string) 
 		return err
 	}
 	return nil
+}
+
+func (provider *Provider) RemoveIngressClass(ctx context.Context, name string) error {
+	err := provider.clientSet.NetworkingV1().IngressClasses().Delete(ctx, name, metav1.DeleteOptions{})
+	return provider.handleRemovalError(err)
 }
 
 func (provider *Provider) RemoveNamespace(ctx context.Context, name string) error {
@@ -758,7 +870,7 @@ func (provider *Provider) BuildWorkerDaemonSet(
 		"-i",
 		"any",
 		"-port",
-		"8897",
+		fmt.Sprintf("%d", config.Config.Tap.Proxy.Worker.SrvPort),
 		"-packet-capture",
 		config.Config.Tap.PacketCapture,
 	}
@@ -855,18 +967,27 @@ func (provider *Provider) BuildWorkerDaemonSet(
 		MountPath: PersistentVolumeHostPath,
 	}
 
+	// VolumeMount(s)
+	volumeMounts := []core.VolumeMount{
+		procfsVolumeMount,
+		sysfsVolumeMount,
+	}
+	if config.Config.Tap.PersistentStorage {
+		volumeMounts = append(volumeMounts, persistentVolumeMount)
+	}
+
 	// Containers
 	containers := []core.Container{
 		{
-			Name:            podName,
-			Image:           podImage,
+			Name:  podName,
+			Image: podImage,
+			Ports: []core.ContainerPort{{
+				HostPort:      int32(config.Config.Tap.Proxy.Worker.SrvPort),
+				ContainerPort: int32(config.Config.Tap.Proxy.Worker.SrvPort),
+			}},
 			ImagePullPolicy: imagePullPolicy,
-			VolumeMounts: []core.VolumeMount{
-				procfsVolumeMount,
-				sysfsVolumeMount,
-				persistentVolumeMount,
-			},
-			Command: command,
+			VolumeMounts:    volumeMounts,
+			Command:         command,
 			Resources: core.ResourceRequirements{
 				Limits: core.ResourceList{
 					"cpu":    cpuLimit,
@@ -887,6 +1008,15 @@ func (provider *Provider) BuildWorkerDaemonSet(
 		},
 	}
 
+	// Volume(s)
+	volumes := []core.Volume{
+		procfsVolume,
+		sysfsVolume,
+	}
+	if config.Config.Tap.PersistentStorage {
+		volumes = append(volumes, persistentVolume)
+	}
+
 	// Pod
 	pod := DaemonSetPod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -897,14 +1027,10 @@ func (provider *Provider) BuildWorkerDaemonSet(
 			}, provider),
 		},
 		Spec: core.PodSpec{
-			ServiceAccountName: ServiceAccountName,
-			HostNetwork:        true,
-			Containers:         containers,
-			Volumes: []core.Volume{
-				procfsVolume,
-				sysfsVolume,
-				persistentVolume,
-			},
+			ServiceAccountName:            ServiceAccountName,
+			HostNetwork:                   true,
+			Containers:                    containers,
+			Volumes:                       volumes,
 			DNSPolicy:                     core.DNSClusterFirstWithHostNet,
 			TerminationGracePeriodSeconds: new(int64),
 			Tolerations:                   provider.BuildTolerations(),

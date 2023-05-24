@@ -6,18 +6,18 @@ tap:
     imagepullsecrets: []
   proxy:
     worker:
-      port: 8897
       srvport: 8897
     hub:
       port: 8898
-      srvport: 80
+      srvport: 8898
     front:
       port: 8899
-      srvport: 80
+      srvport: 8899
     host: 127.0.0.1
   regex: .*
   namespaces: []
   selfnamespace: kubeshark
+  persistentstorage: false
   storagelimit: 200Mi
   storageclass: standard
   dryrun: false
@@ -43,6 +43,13 @@ tap:
   ignoreTainted: false
   resourceLabels: {}
   nodeSelectorTerms: []
+  ingress:
+    enabled: false
+    host: ks.svc.cluster.local
+    tls: []
+    auth:
+      approvedDomains: []
+    certManager: letsencrypt-prod
   debug: false
 logs:
   file: ""

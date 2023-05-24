@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kubeshark/kubeshark/config"
 	"github.com/kubeshark/kubeshark/kubernetes"
@@ -173,7 +174,14 @@ var workerDaemonSetMappings = map[string]interface{}{
 	"spec.template.spec.containers[0].resources.requests.cpu":    "{{ .Values.tap.resources.worker.requests.cpu }}",
 	"spec.template.spec.containers[0].resources.requests.memory": "{{ .Values.tap.resources.worker.requests.memory }}",
 	"spec.template.spec.containers[0].command[0]":                "{{ .Values.tap.debug | ternary \"./worker -debug\" \"./worker\" }}",
+	"spec.template.spec.containers[0].command[4]":                "{{ .Values.tap.proxy.worker.srvport }}",
 	"spec.template.spec.containers[0].command[6]":                "{{ .Values.tap.packetcapture }}",
+}
+var ingressClassMappings = serviceAccountMappings
+var ingressMappings = map[string]interface{}{
+	"metadata.namespace": "{{ .Values.tap.selfnamespace }}",
+	"spec.rules[0].host": "{{ .Values.tap.ingress.host }}",
+	"spec.tls":           "{{ .Values.tap.ingress.tls | toYaml }}",
 }
 
 func init() {
@@ -191,6 +199,8 @@ func runHelmChart() {
 		frontService,
 		persistentVolume,
 		workerDaemonSet,
+		ingressClass,
+		ingress,
 		err := generateManifests()
 	if err != nil {
 		log.Error().Err(err).Send()
@@ -208,6 +218,8 @@ func runHelmChart() {
 		"07-front-service.yaml":           template(frontService, frontServiceMappings),
 		"08-persistent-volume-claim.yaml": template(persistentVolume, persistentVolumeMappings),
 		"09-worker-daemon-set.yaml":       template(workerDaemonSet, workerDaemonSetMappings),
+		"10-ingress-class.yaml":           template(ingressClass, ingressClassMappings),
+		"11-ingress.yaml":                 template(ingress, ingressMappings),
 	})
 	if err != nil {
 		log.Error().Err(err).Send()
@@ -257,6 +269,76 @@ func template(object interface{}, mappings map[string]interface{}) (template int
 	return
 }
 
+func handleHubPod(manifest string) string {
+	lines := strings.Split(manifest, "\n")
+
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "hostPort:") {
+			lines[i] = "          hostPort: {{ .Values.tap.proxy.hub.srvport }}"
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func handleFrontPod(manifest string) string {
+	lines := strings.Split(manifest, "\n")
+
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "hostPort:") {
+			lines[i] = "          hostPort: {{ .Values.tap.proxy.front.srvport }}"
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func handlePVCManifest(manifest string) string {
+	return fmt.Sprintf("{{- if .Values.tap.persistentstorage }}\n%s{{- end }}\n", manifest)
+}
+
+func handleDaemonSetManifest(manifest string) string {
+	lines := strings.Split(manifest, "\n")
+
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "- mountPath: /app/data" {
+			lines[i] = fmt.Sprintf("{{- if .Values.tap.persistentstorage }}\n%s", line)
+		}
+
+		if strings.TrimSpace(line) == "name: kubeshark-persistent-volume" {
+			lines[i] = fmt.Sprintf("%s\n{{- end }}", line)
+		}
+
+		if strings.TrimSpace(line) == "- name: kubeshark-persistent-volume" {
+			lines[i] = fmt.Sprintf("{{- if .Values.tap.persistentstorage }}\n%s", line)
+		}
+
+		if strings.TrimSpace(line) == "claimName: kubeshark-persistent-volume-claim" {
+			lines[i] = fmt.Sprintf("%s\n{{- end }}", line)
+		}
+
+		if strings.HasPrefix(strings.TrimSpace(line), "- containerPort:") {
+			lines[i] = "            - containerPort: {{ .Values.tap.proxy.worker.srvport }}"
+		}
+
+		if strings.HasPrefix(strings.TrimSpace(line), "hostPort:") {
+			lines[i] = "              hostPort: {{ .Values.tap.proxy.worker.srvport }}"
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func handleIngressClass(manifest string) string {
+	return fmt.Sprintf("{{- if .Values.tap.ingress.enabled }}\n%s{{- end }}\n", manifest)
+}
+
+func handleIngress(manifest string) string {
+	manifest = strings.Replace(manifest, "'{{ .Values.tap.ingress.tls | toYaml }}'", "{{ .Values.tap.ingress.tls | toYaml }}", 1)
+
+	return handleIngressClass(manifest)
+}
+
 func dumpHelmChart(objects map[string]interface{}) error {
 	folder := filepath.Join(".", "helm-chart")
 	templatesFolder := filepath.Join(folder, "templates")
@@ -283,6 +365,30 @@ func dumpHelmChart(objects map[string]interface{}) error {
 		manifest, err := utils.PrettyYamlOmitEmpty(objects[filename])
 		if err != nil {
 			return err
+		}
+
+		if filename == "04-hub-pod.yaml" {
+			manifest = handleHubPod(manifest)
+		}
+
+		if filename == "06-front-pod.yaml" {
+			manifest = handleFrontPod(manifest)
+		}
+
+		if filename == "08-persistent-volume-claim.yaml" {
+			manifest = handlePVCManifest(manifest)
+		}
+
+		if filename == "09-worker-daemon-set.yaml" {
+			manifest = handleDaemonSetManifest(manifest)
+		}
+
+		if filename == "10-ingress-class.yaml" {
+			manifest = handleIngressClass(manifest)
+		}
+
+		if filename == "11-ingress.yaml" {
+			manifest = handleIngress(manifest)
 		}
 
 		path := filepath.Join(templatesFolder, filename)

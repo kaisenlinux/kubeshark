@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	v1 "k8s.io/api/core/v1"
+	networking "k8s.io/api/networking/v1"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 	ProxyHostLabel         = "proxy-host"
 	NamespacesLabel        = "namespaces"
 	SelfNamespaceLabel     = "selfnamespace"
+	PersistentStorageLabel = "persistentstorage"
 	StorageLimitLabel      = "storagelimit"
 	StorageClassLabel      = "storageclass"
 	DryRunLabel            = "dryrun"
@@ -24,7 +26,10 @@ const (
 	ServiceMeshLabel       = "servicemesh"
 	TlsLabel               = "tls"
 	IgnoreTaintedLabel     = "ignoreTainted"
+	IngressEnabledLabel    = "ingress-enabled"
 	DebugLabel             = "debug"
+	ContainerPort          = 80
+	ContainerPortStr       = "80"
 )
 
 type ResourceLimits struct {
@@ -43,18 +48,17 @@ type ResourceRequirements struct {
 }
 
 type WorkerConfig struct {
-	SrcPort uint16 `yaml:"port" default:"8897"`
-	DstPort uint16 `yaml:"srvport" default:"8897"`
+	SrvPort uint16 `yaml:"srvport" default:"8897"`
 }
 
 type HubConfig struct {
-	SrcPort uint16 `yaml:"port" default:"8898"`
-	DstPort uint16 `yaml:"srvport" default:"80"`
+	Port    uint16 `yaml:"port" default:"8898"`
+	SrvPort uint16 `yaml:"srvport" default:"8898"`
 }
 
 type FrontConfig struct {
-	SrcPort uint16 `yaml:"port" default:"8899"`
-	DstPort uint16 `yaml:"srvport" default:"80"`
+	Port    uint16 `yaml:"port" default:"8899"`
+	SrvPort uint16 `yaml:"srvport" default:"8899"`
 }
 
 type ProxyConfig struct {
@@ -76,12 +80,25 @@ type ResourcesConfig struct {
 	Hub    ResourceRequirements `yaml:"hub"`
 }
 
+type AuthConfig struct {
+	ApprovedDomains []string `yaml:"approvedDomains"`
+}
+
+type IngressConfig struct {
+	Enabled     bool                    `yaml:"enabled" default:"false"`
+	Host        string                  `yaml:"host" default:"ks.svc.cluster.local"`
+	TLS         []networking.IngressTLS `yaml:"tls"`
+	Auth        AuthConfig              `yaml:"auth"`
+	CertManager string                  `yaml:"certManager" default:"letsencrypt-prod"`
+}
+
 type TapConfig struct {
 	Docker            DockerConfig          `yaml:"docker"`
 	Proxy             ProxyConfig           `yaml:"proxy"`
 	PodRegexStr       string                `yaml:"regex" default:".*"`
 	Namespaces        []string              `yaml:"namespaces"`
 	SelfNamespace     string                `yaml:"selfnamespace" default:"kubeshark"`
+	PersistentStorage bool                  `yaml:"persistentstorage" default:"false"`
 	StorageLimit      string                `yaml:"storagelimit" default:"200Mi"`
 	StorageClass      string                `yaml:"storageclass" default:"standard"`
 	DryRun            bool                  `yaml:"dryrun" default:"false"`
@@ -93,6 +110,7 @@ type TapConfig struct {
 	IgnoreTainted     bool                  `yaml:"ignoreTainted" default:"false"`
 	ResourceLabels    map[string]string     `yaml:"resourceLabels" default:"{}"`
 	NodeSelectorTerms []v1.NodeSelectorTerm `yaml:"nodeSelectorTerms" default:"[]"`
+	Ingress           IngressConfig         `yaml:"ingress"`
 	Debug             bool                  `yaml:"debug" default:"false"`
 }
 

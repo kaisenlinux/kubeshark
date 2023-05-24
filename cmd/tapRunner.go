@@ -60,7 +60,7 @@ func tap() {
 		Str("limit", config.Config.Tap.StorageLimit).
 		Msg(fmt.Sprintf("%s will store the traffic up to a limit (per node). Oldest TCP/UDP streams will be removed once the limit is reached.", misc.Software))
 
-	connector = connect.NewConnector(kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.SrcPort), connect.DefaultRetries, connect.DefaultTimeout)
+	connector = connect.NewConnector(kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
 
 	kubernetesProvider, err := getKubernetesProviderForCli(false, false)
 	if err != nil {
@@ -113,7 +113,10 @@ func tap() {
 
 	// block until exit signal or error
 	utils.WaitForTermination(ctx, cancel)
-	printProxyCommandSuggestion()
+
+	if !config.Config.Tap.Ingress.Enabled {
+		printProxyCommandSuggestion()
+	}
 }
 
 func printProxyCommandSuggestion() {
@@ -315,7 +318,6 @@ func watchFrontPod(ctx context.Context, kubernetesProvider *kubernetes.Provider,
 				Str("namespace", config.Config.Tap.SelfNamespace).
 				Err(err).
 				Msg("Failed creating pod.")
-			cancel()
 
 		case <-timeAfter:
 			if !isPodReady {
@@ -409,8 +411,8 @@ func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider
 		kubernetes.HubServiceName,
 		kubernetes.HubPodName,
 		configStructs.ProxyHubPortLabel,
-		config.Config.Tap.Proxy.Hub.SrcPort,
-		config.Config.Tap.Proxy.Hub.DstPort,
+		config.Config.Tap.Proxy.Hub.Port,
+		configStructs.ContainerPort,
 		"/echo",
 	)
 
@@ -458,9 +460,9 @@ func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider
 		connector.PostScriptDone()
 	}
 
-	if !update {
+	if !update && !config.Config.Tap.Ingress.Enabled {
 		// Hub proxy URL
-		url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.SrcPort)
+		url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port)
 		log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, "Hub is available at:"))
 	}
 
@@ -476,12 +478,17 @@ func postFrontStarted(ctx context.Context, kubernetesProvider *kubernetes.Provid
 		kubernetes.FrontServiceName,
 		kubernetes.FrontPodName,
 		configStructs.ProxyFrontPortLabel,
-		config.Config.Tap.Proxy.Front.SrcPort,
-		config.Config.Tap.Proxy.Front.DstPort,
+		config.Config.Tap.Proxy.Front.Port,
+		configStructs.ContainerPort,
 		"",
 	)
 
-	url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Front.SrcPort)
+	var url string
+	if config.Config.Tap.Ingress.Enabled {
+		url = fmt.Sprintf("http://%s", config.Config.Tap.Ingress.Host)
+	} else {
+		url = kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Front.Port)
+	}
 	log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, fmt.Sprintf("%s is available at:", misc.Software)))
 
 	if !config.Config.HeadlessMode {
