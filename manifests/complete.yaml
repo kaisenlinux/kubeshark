@@ -1,0 +1,269 @@
+---
+# Source: kubeshark/templates/01-service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  creationTimestamp: null
+  labels:
+  annotations:
+  name: kubeshark-service-account
+  namespace: default
+---
+# Source: kubeshark/templates/02-cluster-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+  annotations:
+  name: kubeshark-cluster-role
+  namespace: default
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - apps
+      - networking.k8s.io
+    resources:
+      - pods
+      - services
+      - endpoints
+      - persistentvolumeclaims
+      - ingresses
+    verbs:
+      - list
+      - get
+      - watch
+---
+# Source: kubeshark/templates/03-cluster-role-binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  labels:
+  annotations:
+  name: kubeshark-cluster-role-binding
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeshark-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: kubeshark-service-account
+    namespace: default
+---
+# Source: kubeshark/templates/05-hub-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+  annotations:
+  name: kubeshark-hub
+  namespace: default
+spec:
+  ports:
+    - name: kubeshark-hub
+      port: 80
+      targetPort: 80
+  selector:
+    app: kubeshark-hub
+  type: NodePort
+status:
+  loadBalancer: {}
+---
+# Source: kubeshark/templates/07-front-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+  annotations:
+  name: kubeshark-front
+  namespace: default
+spec:
+  ports:
+    - name: kubeshark-front
+      port: 80
+      targetPort: 80
+  selector:
+    app: kubeshark-front
+  type: NodePort
+status:
+  loadBalancer: {}
+---
+# Source: kubeshark/templates/09-worker-daemon-set.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  creationTimestamp: null
+  labels:
+    app: kubeshark-worker-daemon-set
+  annotations:
+  name: kubeshark-worker-daemon-set
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: kubeshark-worker-daemon-set
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: kubeshark-worker-daemon-set
+      name: kubeshark-worker-daemon-set
+      namespace: kubeshark
+    spec:
+      containers:
+        - command:
+            - ./worker
+            
+            - -i
+            - any
+            - -port
+            - '8897'
+            - -packet-capture
+            - 'libpcap'
+            - -servicemesh
+            - -tls
+            - -procfs
+            - /hostproc
+          image: 'docker.io/kubeshark/worker:latest'
+          imagePullPolicy: Always
+          name: kubeshark-worker-daemon-set
+          resources:
+            limits:
+              cpu: 750m
+              memory: 1Gi
+            requests:
+              cpu: 50m
+              memory: 50Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_RAW
+                - NET_ADMIN
+                - SYS_ADMIN
+                - SYS_PTRACE
+                - DAC_OVERRIDE
+                - SYS_RESOURCE
+              drop:
+                - ALL
+          volumeMounts:
+            - mountPath: /hostproc
+              name: proc
+              readOnly: true
+            - mountPath: /sys
+              name: sys
+              readOnly: true
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      serviceAccountName: kubeshark-service-account
+      terminationGracePeriodSeconds: 0
+      tolerations:
+        - effect: NoExecute
+          operator: Exists
+        - effect: NoSchedule
+          operator: Exists
+      volumes:
+        - hostPath:
+            path: /proc
+          name: proc
+        - hostPath:
+            path: /sys
+          name: sys
+---
+# Source: kubeshark/templates/04-hub-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    app: kubeshark-hub
+  annotations:
+  name: kubeshark-hub
+  namespace: default
+spec:
+  containers:
+    - command:
+        - ./hub
+        
+      env:
+        - name: POD_REGEX
+          value: '.*'
+        - name: NAMESPACES
+          value: ''
+        - name: LICENSE
+          value: ''
+        - name: SCRIPTING_ENV
+          value: '{}'
+        - name: SCRIPTING_SCRIPTS
+          value: '[]'
+        - name: AUTH_APPROVED_DOMAINS
+          value: ''
+      image: 'docker.io/kubeshark/hub:latest'
+      imagePullPolicy: Always
+      name: kubeshark-hub
+      resources:
+        limits:
+          cpu: 750m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 50Mi
+  dnsPolicy: ClusterFirstWithHostNet
+  serviceAccountName: kubeshark-service-account
+  terminationGracePeriodSeconds: 0
+  tolerations:
+    - effect: NoExecute
+      operator: Exists
+    - effect: NoSchedule
+      operator: Exists
+status: {}
+---
+# Source: kubeshark/templates/06-front-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    app: kubeshark-front
+  annotations:
+  name: kubeshark-front
+  namespace: default
+spec:
+  containers:
+    - env:
+        - name: REACT_APP_DEFAULT_FILTER
+          value: ' '
+        - name: REACT_APP_HUB_HOST
+          value: ' '
+        - name: REACT_APP_HUB_PORT
+          value: ':8898'
+      image: 'docker.io/kubeshark/front:latest'
+      imagePullPolicy: Always
+      name: kubeshark-front
+      readinessProbe:
+        failureThreshold: 3
+        periodSeconds: 1
+        successThreshold: 1
+        tcpSocket:
+          port: 80
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: 750m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 50Mi
+  dnsPolicy: ClusterFirstWithHostNet
+  serviceAccountName: kubeshark-service-account
+  terminationGracePeriodSeconds: 0
+  tolerations:
+    - effect: NoExecute
+      operator: Exists
+    - effect: NoSchedule
+      operator: Exists
+status: {}

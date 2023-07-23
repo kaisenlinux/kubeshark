@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -28,7 +28,7 @@ var proCmd = &cobra.Command{
 }
 
 const (
-	PRO_URL  = "https://console.kubeshark.co"
+	PRO_URL  = "https://console.kubeshark.co/cli"
 	PRO_PORT = 5252
 )
 
@@ -45,14 +45,14 @@ func init() {
 }
 
 func acquireLicense() {
-	hubUrl := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port)
+	hubUrl := kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port)
 	response, err := http.Get(fmt.Sprintf("%s/echo", hubUrl))
 	if err != nil || response.StatusCode != 200 {
 		log.Info().Msg(fmt.Sprintf(utils.Yellow, "Couldn't connect to Hub. Establishing proxy..."))
 		runProxy(false, true)
 	}
 
-	connector = connect.NewConnector(kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
+	connector = connect.NewConnector(kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
 
 	log.Info().Str("url", PRO_URL).Msg("Opening in the browser:")
 	utils.OpenBrowser(PRO_URL)
@@ -98,7 +98,7 @@ func runLicenseRecieverServer() {
 	})
 
 	ginApp.POST("/", func(c *gin.Context) {
-		data, err := ioutil.ReadAll(c.Request.Body)
+		data, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			log.Error().Err(err).Send()
 			c.AbortWithStatus(http.StatusBadRequest)

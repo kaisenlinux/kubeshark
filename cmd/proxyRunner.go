@@ -23,7 +23,7 @@ func runProxy(block bool, noBrowser bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	exists, err := kubernetesProvider.DoesServiceExist(ctx, config.Config.Tap.SelfNamespace, kubernetes.FrontServiceName)
+	exists, err := kubernetesProvider.DoesServiceExist(ctx, config.Config.Tap.Release.Namespace, kubernetes.FrontServiceName)
 	if err != nil {
 		log.Error().
 			Str("service", kubernetes.FrontServiceName).
@@ -42,7 +42,7 @@ func runProxy(block bool, noBrowser bool) {
 		return
 	}
 
-	exists, err = kubernetesProvider.DoesServiceExist(ctx, config.Config.Tap.SelfNamespace, kubernetes.HubServiceName)
+	exists, err = kubernetesProvider.DoesServiceExist(ctx, config.Config.Tap.Release.Namespace, kubernetes.HubServiceName)
 	if err != nil {
 		log.Error().
 			Str("service", kubernetes.HubServiceName).
@@ -63,7 +63,7 @@ func runProxy(block bool, noBrowser bool) {
 
 	var establishedProxy bool
 
-	hubUrl := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port)
+	hubUrl := kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port)
 	response, err := http.Get(fmt.Sprintf("%s/echo", hubUrl))
 	if err == nil && response.StatusCode == 200 {
 		log.Info().
@@ -93,7 +93,7 @@ func runProxy(block bool, noBrowser bool) {
 		okToOpen("Hub", hubUrl, true)
 	}
 
-	frontUrl := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Front.Port)
+	frontUrl := kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Front.Port)
 	response, err = http.Get(fmt.Sprintf("%s/", frontUrl))
 	if err == nil && response.StatusCode == 200 {
 		log.Info().

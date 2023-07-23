@@ -13,7 +13,7 @@ override_dh_auto_build:
 	make build
 
 override_dh_auto_test:
-	make test
+	go test
 
 override_dh_auto_install:
 	mv $(CURDIR)/bin/kubeshark__ $(CURDIR)/debian/kubeshark/usr/bin/kubeshark

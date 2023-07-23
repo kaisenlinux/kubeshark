@@ -1,13 +1,24 @@
 package cmd
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3Types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -62,6 +73,7 @@ func logPullingImage(image string, reader io.ReadCloser) {
 }
 
 func pullImages(ctx context.Context, cli *client.Client, imageFront string, imageHub string, imageWorker string) error {
+	log.Info().Msg("Pulling images...")
 	readerFront, err := cli.ImagePull(ctx, imageFront, types.ImagePullOptions{})
 	if err != nil {
 		return err
@@ -93,7 +105,7 @@ func cleanUpOldContainers(
 	nameHub string,
 	nameWorker string,
 ) error {
-	containers, err := cli.ContainerList(ctx, types.ContainerListOptions{})
+	containers, err := cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return err
 	}
@@ -157,7 +169,7 @@ func createAndStartContainers(
 		Env: []string{
 			"REACT_APP_DEFAULT_FILTER= ",
 			"REACT_APP_HUB_HOST= ",
-			fmt.Sprintf("REACT_APP_HUB_PORT=%d", config.Config.Tap.Proxy.Hub.Port),
+			fmt.Sprintf("REACT_APP_HUB_PORT=:%d", config.Config.Tap.Proxy.Hub.Port),
 		},
 	}, hostConfigFront, nil, nil, nameFront)
 	if err != nil {
@@ -271,7 +283,172 @@ func stopAndRemoveContainers(
 	return
 }
 
-func pcap(tarPath string) {
+func downloadTarFromS3(s3Url string) (tarPath string, err error) {
+	u, err := url.Parse(s3Url)
+	if err != nil {
+		return
+	}
+
+	bucket := u.Host
+	key := u.Path[1:]
+
+	var cfg aws.Config
+	cfg, err = awsConfig.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return
+	}
+
+	client := s3.NewFromConfig(cfg)
+
+	var listObjectsOutput *s3.ListObjectsV2Output
+	listObjectsOutput, err = client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(key),
+	})
+	if err != nil {
+		return
+	}
+
+	var file *os.File
+	file, err = os.CreateTemp(os.TempDir(), fmt.Sprintf("%s_*.%s", strings.TrimSuffix(filepath.Base(key), filepath.Ext(key)), filepath.Ext(key)))
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	log.Info().Str("bucket", bucket).Str("key", key).Msg("Downloading from S3")
+
+	downloader := manager.NewDownloader(client)
+	_, err = downloader.Download(context.TODO(), file, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		log.Info().Err(err).Msg("S3 object is not found. Assuming URL is not a single object. Listing the objects in given folder or the bucket to download...")
+
+		var tempDirPath string
+		tempDirPath, err = os.MkdirTemp(os.TempDir(), "kubeshark_*")
+		if err != nil {
+			return
+		}
+
+		var wg sync.WaitGroup
+		for _, object := range listObjectsOutput.Contents {
+			wg.Add(1)
+			go func(object s3Types.Object) {
+				defer wg.Done()
+				objectKey := *object.Key
+
+				fullPath := filepath.Join(tempDirPath, objectKey)
+				err = os.MkdirAll(filepath.Dir(fullPath), os.ModePerm)
+				if err != nil {
+					return
+				}
+
+				var objectFile *os.File
+				objectFile, err = os.Create(fullPath)
+				if err != nil {
+					return
+				}
+				defer objectFile.Close()
+
+				log.Info().Str("bucket", bucket).Str("key", objectKey).Msg("Downloading from S3")
+
+				downloader := manager.NewDownloader(client)
+				_, err = downloader.Download(context.TODO(), objectFile, &s3.GetObjectInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(objectKey),
+				})
+				if err != nil {
+					return
+				}
+			}(object)
+		}
+		wg.Wait()
+
+		tarPath, err = tarDirectory(tempDirPath)
+		return
+	}
+
+	tarPath = file.Name()
+
+	return
+}
+
+func tarDirectory(dirPath string) (string, error) {
+	tarPath := fmt.Sprintf("%s.tar.gz", dirPath)
+
+	var file *os.File
+	file, err := os.Create(tarPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	gzipWriter := gzip.NewWriter(file)
+	defer gzipWriter.Close()
+
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	walker := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		stat, err := file.Stat()
+		if err != nil {
+			return err
+		}
+
+		header := &tar.Header{
+			Name:    path[len(dirPath)+1:],
+			Size:    stat.Size(),
+			Mode:    int64(stat.Mode()),
+			ModTime: stat.ModTime(),
+		}
+
+		err = tarWriter.WriteHeader(header)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(tarWriter, file)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	err = filepath.Walk(dirPath, walker)
+	if err != nil {
+		return "", err
+	}
+
+	return tarPath, nil
+}
+
+func pcap(tarPath string) error {
+	if strings.HasPrefix(tarPath, "s3://") {
+		var err error
+		tarPath, err = downloadTarFromS3(tarPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed downloading from S3")
+			return err
+		}
+	}
+
+	log.Info().Str("tar-path", tarPath).Msg("Openning")
+
 	docker.SetRegistry(config.Config.Tap.Docker.Registry)
 	docker.SetTag(config.Config.Tap.Docker.Tag)
 
@@ -279,7 +456,7 @@ func pcap(tarPath string) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Send()
-		return
+		return err
 	}
 	defer cli.Close()
 
@@ -290,13 +467,13 @@ func pcap(tarPath string) {
 	err = pullImages(ctx, cli, imageFront, imageHub, imageWorker)
 	if err != nil {
 		log.Error().Err(err).Send()
-		return
+		return err
 	}
 
 	tarFile, err := os.Open(tarPath)
 	if err != nil {
 		log.Error().Err(err).Send()
-		return
+		return err
 	}
 	defer tarFile.Close()
 	tarReader := bufio.NewReader(tarFile)
@@ -311,7 +488,7 @@ func pcap(tarPath string) {
 	)
 	if err != nil {
 		log.Error().Err(err).Send()
-		return
+		return err
 	}
 
 	workerPod := &v1.Pod{
@@ -329,7 +506,7 @@ func pcap(tarPath string) {
 		},
 	}
 
-	connector = connect.NewConnector(kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
+	connector = connect.NewConnector(kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
 	connector.PostWorkerPodToHub(workerPod)
 
 	// License
@@ -338,10 +515,10 @@ func pcap(tarPath string) {
 	}
 
 	log.Info().
-		Str("url", kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Hub.Port)).
+		Str("url", kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port)).
 		Msg(fmt.Sprintf(utils.Green, "Hub is available at:"))
 
-	url := kubernetes.GetLocalhostOnPort(config.Config.Tap.Proxy.Front.Port)
+	url := kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Front.Port)
 	log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, fmt.Sprintf("%s is available at:", misc.Software)))
 
 	if !config.Config.HeadlessMode {
@@ -355,5 +532,8 @@ func pcap(tarPath string) {
 	err = stopAndRemoveContainers(ctx, cli, respFront, respHub, respWorker)
 	if err != nil {
 		log.Error().Err(err).Send()
+		return err
 	}
+
+	return nil
 }

@@ -16,7 +16,10 @@ tap:
     host: 127.0.0.1
   regex: .*
   namespaces: []
-  selfnamespace: kubeshark
+  release:
+    repo: https://helm.kubeshark.co
+    name: kubeshark
+    namespace: default
   persistentstorage: false
   storagelimit: 200Mi
   storageclass: standard
@@ -40,16 +43,19 @@ tap:
   servicemesh: true
   tls: true
   packetcapture: libpcap
-  ignoreTainted: false
-  resourceLabels: {}
-  nodeSelectorTerms: []
+  ignoretainted: false
+  labels: {}
+  annotations: {}
+  nodeselectorterms: []
   ingress:
     enabled: false
+    classname: kubeshark-ingress-class
+    controller: k8s.io/ingress-nginx
     host: ks.svc.cluster.local
     tls: []
     auth:
-      approvedDomains: []
-    certManager: letsencrypt-prod
+      approveddomains: []
+    certmanager: letsencrypt-prod
   debug: false
 logs:
   file: ""
