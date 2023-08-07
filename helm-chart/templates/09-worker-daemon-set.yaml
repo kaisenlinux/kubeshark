@@ -5,6 +5,7 @@ metadata:
   creationTimestamp: null
   labels:
     app: kubeshark-worker-daemon-set
+    sidecar.istio.io/inject: "false"
   {{- if .Values.tap.labels }}
     {{- toYaml .Values.tap.labels | nindent 4 }}
   {{- end }}
@@ -35,20 +36,27 @@ spec:
       containers:
         - command:
             - ./worker
-            {{ .Values.tap.debug | ternary "- -debug" "" }}
             - -i
             - any
             - -port
             - '{{ .Values.tap.proxy.worker.srvport }}'
-            - -packet-capture
-            - '{{ .Values.tap.packetcapture }}'
             - -servicemesh
             - -tls
             - -procfs
             - /hostproc
+            {{ .Values.tap.debug | ternary "- -debug" "" }}
           image: '{{ .Values.tap.docker.registry }}/worker:{{ .Values.tap.docker.tag }}'
           imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
           name: kubeshark-worker-daemon-set
+        {{- if .Values.tap.debug }}
+          env:
+          - name: PROFILING_ENABLED
+            value: "true"
+          - name: PROFILING_DUMP_PATH
+            value: "pprof"
+          - name: PROFILING_INTERVAL_SECONDS
+            value: "60"
+        {{- end }}
           resources:
             limits:
               cpu: {{ .Values.tap.resources.worker.limits.cpu }}

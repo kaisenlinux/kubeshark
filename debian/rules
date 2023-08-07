@@ -16,7 +16,7 @@ override_dh_auto_test:
 	go test
 
 override_dh_auto_install:
-	mv $(CURDIR)/bin/kubeshark__ $(CURDIR)/debian/kubeshark/usr/bin/kubeshark
+	install -p -m 0755 $(CURDIR)/bin/kubeshark__ $(CURDIR)/debian/kubeshark/usr/bin/kubeshark
+	install -p -m 0644 $(CURDIR)/debian/kubeshark.png $(CURDIR)/debian/kubeshark/usr/share/pixmaps/
 	$(CURDIR)/debian/kubeshark/usr/bin/kubeshark completion bash > $(CURDIR)/debian/kubeshark/usr/share/bash-completion/completions/kubeshark
 	$(CURDIR)/debian/kubeshark/usr/bin/kubeshark completion zsh > $(CURDIR)/debian/kubeshark/usr/share/zsh/vendor-completions/_kubeshark
-	install -p -m 0644 $(CURDIR)/debian/kubeshark.png $(CURDIR)/debian/kubeshark/usr/share/pixmaps/

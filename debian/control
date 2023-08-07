@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 Rules-Requires-Root: no
 Build-Depends:
- debhelper-compat (= 13), dh-golang, golang-go (>= 1.17)
+ debhelper-compat (= 13), dh-golang, golang-go (>= 1.19)
 Standards-Version: 4.6.2
 Homepage: https://kubeshark.co/
 Vcs-Browser: https://gitlab.com/kaisenlinux/packages/kubeshark
@@ -15,7 +15,6 @@ Architecture: amd64 arm64
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
- golang-go (>= 1.17)
 Description: Wireshark for Kubernetes
  The API traffic viewer for Kubernetes providing deep visibility into all API traffic and payloads going in,
  out and across containers and pods inside a Kubernetes cluster. Think TCPDump and

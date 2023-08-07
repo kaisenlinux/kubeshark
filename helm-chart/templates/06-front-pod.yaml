@@ -5,6 +5,7 @@ metadata:
   creationTimestamp: null
   labels:
     app: kubeshark-front
+    sidecar.istio.io/inject: "false"
   {{- if .Values.tap.labels }}
     {{- toYaml .Values.tap.labels | nindent 4 }}
   {{- end }}
@@ -22,7 +23,7 @@ spec:
         - name: REACT_APP_HUB_HOST
           value: ' '
         - name: REACT_APP_HUB_PORT
-          value: '{{ .Values.tap.ingress.enabled | ternary "/api" ":8898" }}'
+          value: '{{ .Values.tap.ingress.enabled | ternary "/api" (print ":" .Values.tap.proxy.hub.port) }}'
       image: '{{ .Values.tap.docker.registry }}/front:{{ .Values.tap.docker.tag }}'
       imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
       name: kubeshark-front
@@ -49,12 +50,5 @@ spec:
 {{- if not .Values.tap.ignoretainted }}
     - effect: NoSchedule
       operator: Exists
-{{- end }}
-{{- if gt (len .Values.tap.nodeselectorterms) 0}}
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          {{- toYaml .Values.tap.nodeselectorterms | nindent 8 }}
 {{- end }}
 status: {}
