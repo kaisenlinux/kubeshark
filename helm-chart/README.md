@@ -58,9 +58,10 @@ Visit [localhost:8899](http://localhost:8899)
 helm install kubeshark kubeshark/kubeshark \
   --set tap.ingress.enabled=true \
   --set tap.ingress.host=ks.svc.cluster.local \
-  --set "tap.ingress.auth.approveddomains={gmail.com}" \
+  --set "tap.ingress.approveddomains={gmail.com}" \
   --set license=LICENSE_GOES_HERE
 ```
+
 You can get your license [here](https://console.kubeshark.co/).
 
 ## Installing with Persistent Storage Enabled
@@ -70,4 +71,14 @@ helm install kubeshark kubeshark/kubeshark \
   --set tap.persistentstorage=true \
   --set license=LICENSE_GOES_HERE
 ```
+
 You can get your license [here](https://console.kubeshark.co/).
+
+## Disabling IPV6
+
+Not all have IPV6 enabled, hence this has to be disabled as follows:
+
+```shell
+helm install kubeshark kubeshark/kubeshark \
+  --set tap.ipv6=false
+```

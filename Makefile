@@ -73,7 +73,7 @@ generate-helm-values: ## Generate the Helm values from config.yaml
 	./bin/kubeshark__ config > ./helm-chart/values.yaml
 
 generate-manifests: ## Generate the manifests from the Helm chart using default configuration
-	helm template ./helm-chart > ./manifests/complete.yaml
+	helm template kubeshark -n default ./helm-chart > ./manifests/complete.yaml
 
 logs-worker:
 	export LOGS_POD_PREFIX=kubeshark-worker-
@@ -107,6 +107,9 @@ logs-front-follow:
 
 logs:
 	kubectl logs $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW)
+
+ssh-node:
+	kubectl ssh node $$(kubectl get nodes | awk 'END {print $$1}')
 
 exec-worker:
 	export EXEC_POD_PREFIX=kubeshark-worker-
@@ -146,3 +149,6 @@ helm-uninstall:
 
 proxy:
 	kubeshark proxy
+
+port-forward-worker:
+	kubectl port-forward $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW) 8897:8897

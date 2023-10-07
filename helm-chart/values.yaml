@@ -45,17 +45,26 @@ tap:
   ignoretainted: false
   labels: {}
   annotations: {}
-  nodeselectorterms: []
+  nodeselectorterms:
+  - matchExpressions:
+    - key: kubernetes.io/os
+      operator: In
+      values:
+      - linux
+  auth:
+    enabled: false
+    approvedemails: []
+    approveddomains: []
   ingress:
     enabled: false
-    classname: kubeshark-ingress-class
-    controller: k8s.io/ingress-nginx
+    classname: ""
     host: ks.svc.cluster.local
     tls: []
-    auth:
-      approveddomains: []
-    certmanager: letsencrypt-prod
+    annotations: {}
+  ipv6: true
   debug: false
+  telemetry:
+    enabled: true
 logs:
   file: ""
 kube:
@@ -67,4 +76,4 @@ license: ""
 scripting:
   env: {}
   source: ""
-  watchScripts: true
+  watchscripts: true

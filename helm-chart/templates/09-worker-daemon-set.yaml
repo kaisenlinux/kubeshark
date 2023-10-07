@@ -2,13 +2,10 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  creationTimestamp: null
   labels:
-    app: kubeshark-worker-daemon-set
+    app.kubeshark.co/app: worker
     sidecar.istio.io/inject: "false"
-  {{- if .Values.tap.labels }}
-    {{- toYaml .Values.tap.labels | nindent 4 }}
-  {{- end }}
+    {{- include "kubeshark.labels" . | nindent 4 }}
   annotations:
   {{- if .Values.tap.annotations }}
     {{- toYaml .Values.tap.annotations | nindent 4 }}
@@ -18,18 +15,13 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: kubeshark-worker-daemon-set
-    {{- if .Values.tap.labels }}
-      {{- toYaml .Values.tap.labels | nindent 6 }}
-    {{- end }}
+      app.kubeshark.co/app: worker
+      {{- include "kubeshark.labels" . | nindent 6 }}
   template:
     metadata:
-      creationTimestamp: null
       labels:
-        app: kubeshark-worker-daemon-set
-      {{- if .Values.tap.labels }}
-        {{- toYaml .Values.tap.labels | nindent 8 }}
-      {{- end }}
+        app.kubeshark.co/app: worker
+        {{- include "kubeshark.labels" . | nindent 8 }}
       name: kubeshark-worker-daemon-set
       namespace: kubeshark
     spec:
@@ -41,13 +33,16 @@ spec:
             - -port
             - '{{ .Values.tap.proxy.worker.srvport }}'
             - -servicemesh
-            - -tls
+            {{ .Values.tap.tls | ternary "- -tls" "" }}
             - -procfs
             - /hostproc
             {{ .Values.tap.debug | ternary "- -debug" "" }}
           image: '{{ .Values.tap.docker.registry }}/worker:{{ .Values.tap.docker.tag }}'
           imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
           name: kubeshark-worker-daemon-set
+          envFrom:
+            - secretRef:
+                name: kubeshark-secret
         {{- if .Values.tap.debug }}
           env:
           - name: PROFILING_ENABLED
@@ -73,8 +68,23 @@ spec:
                 - SYS_PTRACE
                 - DAC_OVERRIDE
                 - SYS_RESOURCE
+                - SYS_MODULE
               drop:
                 - ALL
+          readinessProbe:
+            periodSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+            initialDelaySeconds: 5
+            tcpSocket:
+              port: {{ .Values.tap.proxy.worker.srvport }}
+          livenessProbe:
+            periodSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+            initialDelaySeconds: 5
+            tcpSocket:
+              port: {{ .Values.tap.proxy.worker.srvport }}
           volumeMounts:
             - mountPath: /hostproc
               name: proc
@@ -88,7 +98,7 @@ spec:
 {{- end }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
-      serviceAccountName: kubeshark-service-account
+      serviceAccountName: {{ include "kubeshark.serviceAccountName" . }}
       terminationGracePeriodSeconds: 0
       tolerations:
         - effect: NoExecute

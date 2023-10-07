@@ -1,3 +1,10 @@
+kubeshark (50.4-1kaisen) kaisen-packages; urgency=medium
+
+  * Import the 50.4 version
+  * Update the quilt patch
+
+ -- Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>  Mon, 07 Aug 2023 20:04:43 +0100
+
 kubeshark (41.6-1kaisen) kaisen-packages; urgency=medium
 
   * Import the 41.6 version

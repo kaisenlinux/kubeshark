@@ -65,7 +65,7 @@ func tap() {
 		Str("limit", config.Config.Tap.StorageLimit).
 		Msg(fmt.Sprintf("%s will store the traffic up to a limit (per node). Oldest TCP/UDP streams will be removed once the limit is reached.", misc.Software))
 
-	connector = connect.NewConnector(kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port), connect.DefaultRetries, connect.DefaultTimeout)
+	connector = connect.NewConnector(kubernetes.GetHubUrl(), connect.DefaultRetries, connect.DefaultTimeout)
 
 	kubernetesProvider, err := getKubernetesProviderForCli(false, false)
 	if err != nil {
@@ -76,6 +76,11 @@ func tap() {
 	defer cancel() // cancel will be called when this function exits
 
 	state.targetNamespaces = kubernetesProvider.GetNamespaces()
+
+	log.Info().
+		Bool("enabled", config.Config.Tap.Telemetry.Enabled).
+		Str("notice", "Telemetry can be disabled by setting the flag: --telemetry-enabled=false").
+		Msg("Telemetry")
 
 	log.Info().Strs("namespaces", state.targetNamespaces).Msg("Targeting pods in:")
 
@@ -153,7 +158,7 @@ func printNoPodsFoundSuggestion(targetNamespaces []string) {
 }
 
 func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
-	podExactRegex := regexp.MustCompile(fmt.Sprintf("^%s$", kubernetes.HubPodName))
+	podExactRegex := regexp.MustCompile(fmt.Sprintf("^%s", kubernetes.HubPodName))
 	podWatchHelper := kubernetes.NewPodWatchHelper(kubernetesProvider, podExactRegex)
 	eventChan, errorChan := kubernetes.FilteredWatch(ctx, podWatchHelper, []string{config.Config.Tap.Release.Namespace}, podWatchHelper)
 	isPodReady := false
@@ -244,7 +249,7 @@ func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, c
 }
 
 func watchFrontPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
-	podExactRegex := regexp.MustCompile(fmt.Sprintf("^%s$", kubernetes.FrontPodName))
+	podExactRegex := regexp.MustCompile(fmt.Sprintf("^%s", kubernetes.FrontPodName))
 	podWatchHelper := kubernetes.NewPodWatchHelper(kubernetesProvider, podExactRegex)
 	eventChan, errorChan := kubernetes.FilteredWatch(ctx, podWatchHelper, []string{config.Config.Tap.Release.Namespace}, podWatchHelper)
 	isPodReady := false
@@ -401,16 +406,6 @@ func watchHubEvents(ctx context.Context, kubernetesProvider *kubernetes.Provider
 }
 
 func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc, update bool) {
-	startProxyReportErrorIfAny(
-		kubernetesProvider,
-		ctx,
-		kubernetes.HubServiceName,
-		kubernetes.HubPodName,
-		configStructs.ProxyHubPortLabel,
-		config.Config.Tap.Proxy.Hub.Port,
-		configStructs.ContainerPort,
-		"/echo",
-	)
 
 	if update {
 		// Pod regex
@@ -437,12 +432,6 @@ func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider
 		}
 
 		connector.PostScriptDone()
-	}
-
-	if !update && !config.Config.Tap.Ingress.Enabled {
-		// Hub proxy URL
-		url := kubernetes.GetProxyOnPort(config.Config.Tap.Proxy.Hub.Port)
-		log.Info().Str("url", url).Msg(fmt.Sprintf(utils.Green, "Hub is available at:"))
 	}
 
 	if config.Config.Scripting.Source != "" && config.Config.Scripting.WatchScripts {

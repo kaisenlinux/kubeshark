@@ -3,22 +3,17 @@ package utils
 import (
 	"bytes"
 
-	"gopkg.in/yaml.v3"
+	"github.com/goccy/go-yaml"
 )
 
-const (
-	empty = ""
-	tab   = "\t"
-)
-
-func PrettyYaml(data interface{}) (string, error) {
+func PrettyYaml(data interface{}) (result string, err error) {
 	buffer := new(bytes.Buffer)
-	encoder := yaml.NewEncoder(buffer)
-	encoder.SetIndent(2)
+	encoder := yaml.NewEncoder(buffer, yaml.Indent(2))
 
-	err := encoder.Encode(data)
+	err = encoder.Encode(data)
 	if err != nil {
-		return empty, err
+		return
 	}
-	return buffer.String(), nil
+	result = buffer.String()
+	return
 }
