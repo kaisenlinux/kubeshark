@@ -69,9 +69,21 @@ func updateLicense(licenseKey string) {
 		log.Error().Err(err).Send()
 	}
 
-	connector.PostLicenseSingle(config.Config.License)
+	kubernetesProvider, err := getKubernetesProviderForCli(false, false)
+	if err != nil {
+		log.Error().Err(err).Send()
+		return
+	}
+	updated, err := kubernetes.SetSecret(kubernetesProvider, kubernetes.SECRET_LICENSE, config.Config.License)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
 
-	log.Info().Msg("Updated the license. Exiting.")
+	if updated {
+		log.Info().Msg("Updated the license, exiting...")
+	} else {
+		log.Info().Msg("Exiting...")
+	}
 
 	go func() {
 		time.Sleep(2 * time.Second)
@@ -112,7 +124,7 @@ func runLicenseRecieverServer() {
 
 	go func() {
 		if err := ginApp.Run(fmt.Sprintf(":%d", PRO_PORT)); err != nil {
-			panic(err)
+			log.Error().Err(err).Send()
 		}
 	}()
 

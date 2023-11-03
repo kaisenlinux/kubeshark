@@ -7,7 +7,7 @@
         <img alt="GitHub Latest Release" src="https://img.shields.io/github/v/release/kubeshark/kubeshark?logo=GitHub&style=flat-square">
     </a>
     <a href="https://hub.docker.com/r/kubeshark/worker">
-      <img alt="Docker pulls" src="https://img.shields.io/docker/pulls/kubeshark/kubeshark?color=%23099cec&logo=Docker&style=flat-square">
+      <img alt="Docker pulls" src="https://img.shields.io/docker/pulls/kubeshark/worker?color=%23099cec&logo=Docker&style=flat-square">
     </a>
     <a href="https://hub.docker.com/r/kubeshark/worker">
       <img alt="Image size" src="https://img.shields.io/docker/image-size/kubeshark/kubeshark/latest?logo=Docker&style=flat-square">
@@ -23,8 +23,7 @@
 <p align="center">
   <b>
   <span>NEW: </span>
-  <a href="https://kubeshark.co/traffic-recording">Traffic Recording and Offline Investigation</a>, and  
-  <a href="https://kubeshark.co/self-hosting">Self-hosting with Ingress and Authentication</a>. 
+  <a href="https://github.com/kubeshark/kubeshark/releases/latest">v51.0.0</a> is out, with significantly improved performance and optimized resource utilization.
   </b>
 </p>
 

@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/kubeshark/kubeshark/docker"
 	"github.com/kubeshark/kubeshark/internal/connect"
 	"github.com/kubeshark/kubeshark/kubernetes/helm"
 	"github.com/kubeshark/kubeshark/misc"
@@ -45,20 +46,13 @@ var ready *Readiness
 func tap() {
 	ready = &Readiness{}
 	state.startTime = time.Now()
-	docker.SetRegistry(config.Config.Tap.Docker.Registry)
-	docker.SetTag(config.Config.Tap.Docker.Tag)
-	log.Info().Str("registry", docker.GetRegistry()).Str("tag", docker.GetTag()).Msg("Using Docker:")
+	log.Info().Str("registry", config.Config.Tap.Docker.Registry).Str("tag", config.Config.Tap.Docker.Tag).Msg("Using Docker:")
 	if config.Config.Tap.Pcap != "" {
 		err := pcap(config.Config.Tap.Pcap)
 		if err != nil {
 			os.Exit(1)
 		}
 		return
-	}
-
-	if !config.Config.Tap.PersistentStorage {
-		config.Config.Tap.StorageLimit = "200Mi"
-		log.Warn().Msg("Storage limit cannot be modified while persistentstorage is set to false!")
 	}
 
 	log.Info().
@@ -69,6 +63,7 @@ func tap() {
 
 	kubernetesProvider, err := getKubernetesProviderForCli(false, false)
 	if err != nil {
+		log.Error().Err(err).Send()
 		return
 	}
 
@@ -100,17 +95,23 @@ func tap() {
 		config.Config.Tap.Release.Namespace,
 	).Install()
 	if err != nil {
-		log.Error().Err(err).Send()
-		os.Exit(1)
+		if err.Error() != "cannot re-use a name that is still in use" {
+			log.Error().Err(err).Send()
+			os.Exit(1)
+		}
+		log.Info().Msg("Found an existing installation, skipping Helm install...")
+
+		updateConfig(kubernetesProvider)
+		postFrontStarted(ctx, kubernetesProvider, cancel)
 	} else {
 		log.Info().Msgf("Installed the Helm release: %s", rel.Name)
+
+		go watchHubEvents(ctx, kubernetesProvider, cancel)
+		go watchHubPod(ctx, kubernetesProvider, cancel)
+		go watchFrontPod(ctx, kubernetesProvider, cancel)
 	}
 
 	defer finishTapExecution(kubernetesProvider)
-
-	go watchHubEvents(ctx, kubernetesProvider, cancel)
-	go watchHubPod(ctx, kubernetesProvider, cancel)
-	go watchFrontPod(ctx, kubernetesProvider, cancel)
 
 	// block until exit signal or error
 	utils.WaitForTermination(ctx, cancel)
@@ -199,7 +200,7 @@ func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, c
 					ready.Lock()
 					ready.Hub = true
 					ready.Unlock()
-					postHubStarted(ctx, kubernetesProvider, cancel, false)
+					postHubStarted(ctx, kubernetesProvider, cancel)
 				}
 
 				ready.Lock()
@@ -405,35 +406,7 @@ func watchHubEvents(ctx context.Context, kubernetesProvider *kubernetes.Provider
 	}
 }
 
-func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc, update bool) {
-
-	if update {
-		// Pod regex
-		connector.PostRegexToHub(config.Config.Tap.PodRegexStr, state.targetNamespaces)
-
-		// License
-		if config.Config.License != "" {
-			connector.PostLicense(config.Config.License)
-		}
-
-		// Scripting
-		connector.PostEnv(config.Config.Scripting.Env)
-
-		scripts, err := config.Config.Scripting.GetScripts()
-		if err != nil {
-			log.Error().Err(err).Send()
-		}
-
-		for _, script := range scripts {
-			_, err = connector.PostScript(script)
-			if err != nil {
-				log.Error().Err(err).Send()
-			}
-		}
-
-		connector.PostScriptDone()
-	}
-
+func postHubStarted(ctx context.Context, kubernetesProvider *kubernetes.Provider, cancel context.CancelFunc) {
 	if config.Config.Scripting.Source != "" && config.Config.Scripting.WatchScripts {
 		watchScripts(false)
 	}
@@ -462,4 +435,26 @@ func postFrontStarted(ctx context.Context, kubernetesProvider *kubernetes.Provid
 	if !config.Config.HeadlessMode {
 		utils.OpenBrowser(url)
 	}
+}
+
+func updateConfig(kubernetesProvider *kubernetes.Provider) {
+	_, _ = kubernetes.SetSecret(kubernetesProvider, kubernetes.SECRET_LICENSE, config.Config.License)
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_POD_REGEX, config.Config.Tap.PodRegexStr)
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_NAMESPACES, strings.Join(config.Config.Tap.Namespaces, ","))
+
+	data, err := json.Marshal(config.Config.Scripting.Env)
+	if err != nil {
+		log.Error().Str("config", kubernetes.CONFIG_SCRIPTING_ENV).Err(err).Send()
+		return
+	} else {
+		_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_SCRIPTING_ENV, string(data))
+	}
+
+	authEnabled := ""
+	if config.Config.Tap.Auth.Enabled {
+		authEnabled = "true"
+	}
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_AUTH_ENABLED, authEnabled)
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_AUTH_APPROVED_EMAILS, strings.Join(config.Config.Tap.Auth.ApprovedEmails, ","))
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_AUTH_APPROVED_DOMAINS, strings.Join(config.Config.Tap.Auth.ApprovedDomains, ","))
 }

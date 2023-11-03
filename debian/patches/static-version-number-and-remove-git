@@ -1,7 +1,7 @@
 Author: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 
---- kubeshark-50.4.orig/Makefile
-+++ kubeshark-50.4/Makefile
+--- kubeshark-51.0.14.orig/Makefile
++++ kubeshark-51.0.14/Makefile
 @@ -5,11 +5,8 @@ SHELL=/bin/bash
  .ONESHELL:
  
@@ -11,7 +11,7 @@ Author: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 -GIT_VERSION=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
  BUILD_TIMESTAMP=$(shell date +%s)
 -export VER?=0.0
-+export VER?=50.4
++export VER?=51.0.14
  
  help: ## Print this help message.
  	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)

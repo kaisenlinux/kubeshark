@@ -70,7 +70,7 @@ type ProxyConfig struct {
 
 type DockerConfig struct {
 	Registry         string   `yaml:"registry" json:"registry" default:"docker.io/kubeshark"`
-	Tag              string   `yaml:"tag" json:"tag" default:"latest"`
+	Tag              string   `yaml:"tag" json:"tag" default:""`
 	ImagePullPolicy  string   `yaml:"imagepullpolicy" json:"imagepullpolicy" default:"Always"`
 	ImagePullSecrets []string `yaml:"imagepullsecrets" json:"imagepullsecrets"`
 }
@@ -111,14 +111,13 @@ type TapConfig struct {
 	Namespaces        []string              `yaml:"namespaces" json:"namespaces" default:"[]"`
 	Release           ReleaseConfig         `yaml:"release" json:"release"`
 	PersistentStorage bool                  `yaml:"persistentstorage" json:"persistentstorage" default:"false"`
-	StorageLimit      string                `yaml:"storagelimit" json:"storagelimit" default:"200Mi"`
+	StorageLimit      string                `yaml:"storagelimit" json:"storagelimit" default:"500Mi"`
 	StorageClass      string                `yaml:"storageclass" json:"storageclass" default:"standard"`
 	DryRun            bool                  `yaml:"dryrun" json:"dryrun" default:"false"`
 	Pcap              string                `yaml:"pcap" json:"pcap" default:""`
 	Resources         ResourcesConfig       `yaml:"resources" json:"resources"`
 	ServiceMesh       bool                  `yaml:"servicemesh" json:"servicemesh" default:"true"`
 	Tls               bool                  `yaml:"tls" json:"tls" default:"true"`
-	PacketCapture     string                `yaml:"packetcapture" json:"packetcapture" default:"libpcap"`
 	IgnoreTainted     bool                  `yaml:"ignoretainted" json:"ignoretainted" default:"false"`
 	Labels            map[string]string     `yaml:"labels" json:"labels" default:"{}"`
 	Annotations       map[string]string     `yaml:"annotations" json:"annotations" default:"{}"`
@@ -127,6 +126,7 @@ type TapConfig struct {
 	Ingress           IngressConfig         `yaml:"ingress" json:"ingress"`
 	IPv6              bool                  `yaml:"ipv6" json:"ipv6" default:"true"`
 	Debug             bool                  `yaml:"debug" json:"debug" default:"false"`
+	NoKernelModule    bool                  `yaml:"nokernelmodule" json:"nokernelmodule" default:"false"`
 	Telemetry         TelemetryConfig       `yaml:"telemetry" json:"telemetry"`
 }
 

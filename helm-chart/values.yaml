@@ -1,7 +1,7 @@
 tap:
   docker:
     registry: docker.io/kubeshark
-    tag: latest
+    tag: ""
     imagepullpolicy: Always
     imagepullsecrets: []
   proxy:
@@ -20,7 +20,7 @@ tap:
     name: kubeshark
     namespace: default
   persistentstorage: false
-  storagelimit: 200Mi
+  storagelimit: 500Mi
   storageclass: standard
   dryrun: false
   pcap: ""
@@ -41,7 +41,6 @@ tap:
         memory: 50Mi
   servicemesh: true
   tls: true
-  packetcapture: libpcap
   ignoretainted: false
   labels: {}
   annotations: {}
@@ -63,6 +62,7 @@ tap:
     annotations: {}
   ipv6: true
   debug: false
+  nokernelmodule: false
   telemetry:
     enabled: true
 logs:
