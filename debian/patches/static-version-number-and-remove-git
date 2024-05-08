@@ -1,7 +1,7 @@
 Author: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 
---- kubeshark-51.0.14.orig/Makefile
-+++ kubeshark-51.0.14/Makefile
+--- kubeshark-52.3.0.orig/Makefile
++++ kubeshark-52.3.0/Makefile
 @@ -5,11 +5,8 @@ SHELL=/bin/bash
  .ONESHELL:
  
@@ -10,8 +10,8 @@ Author: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 -GIT_BRANCH=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
 -GIT_VERSION=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
  BUILD_TIMESTAMP=$(shell date +%s)
--export VER?=0.0
-+export VER?=51.0.14
+-export VER?=0.0.0
++export VER?=52.3.0
  
  help: ## Print this help message.
  	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -24,14 +24,22 @@ Author: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
  					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
  					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
  					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
-@@ -46,10 +41,6 @@ build-all: ## Build for all supported pl
+@@ -42,8 +37,6 @@ build-base: ## Build binary (select the
+ 
+ build-brew: ## Build binary for brew/core CI
+ 	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
+-					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
+-					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
+ 					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
+ 					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
+ 					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
+@@ -61,9 +54,6 @@ build-all: ## Build for all supported pl
  	mkdir -p bin && sed s/_VER_/$(VER)/g RELEASE.md.TEMPLATE >  bin/README.md && \
  	$(MAKE) build GOOS=linux GOARCH=amd64 && \
  	$(MAKE) build GOOS=linux GOARCH=arm64 && \
 -	$(MAKE) build GOOS=darwin GOARCH=amd64 && \
 -	$(MAKE) build GOOS=darwin GOARCH=arm64 && \
--	$(MAKE) build GOOS=windows GOARCH=amd64 && \
--	mv ./bin/kubeshark_windows_amd64 ./bin/kubeshark.exe && \
+-	$(MAKE) build-windows-amd64 && \
  	echo "---------" && \
  	find ./bin -ls
  

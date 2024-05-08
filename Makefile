@@ -9,7 +9,7 @@ COMMIT_HASH=$(shell git rev-parse HEAD)
 GIT_BRANCH=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
 GIT_VERSION=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
 BUILD_TIMESTAMP=$(shell date +%s)
-export VER?=0.0
+export VER?=0.0.0
 
 help: ## Print this help message.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -40,6 +40,21 @@ build-base: ## Build binary (select the platform via GOOS / GOARCH env variables
 					-o bin/kubeshark_$(SUFFIX) kubeshark.go && \
 	cd bin && shasum -a 256 kubeshark_${SUFFIX} > kubeshark_${SUFFIX}.sha256
 
+build-brew: ## Build binary for brew/core CI
+	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
+					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
+					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
+					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
+					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
+					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
+					-o kubeshark kubeshark.go
+
+build-windows-amd64:
+	$(MAKE) build GOOS=windows GOARCH=amd64 && \
+	mv ./bin/kubeshark_windows_amd64 ./bin/kubeshark.exe && \
+	rm bin/kubeshark_windows_amd64.sha256 && \
+	cd bin && shasum -a 256 kubeshark.exe > kubeshark.exe.sha256
+
 build-all: ## Build for all supported platforms.
 	export CGO_ENABLED=0
 	echo "Compiling for every OS and Platform" && \
@@ -48,8 +63,7 @@ build-all: ## Build for all supported platforms.
 	$(MAKE) build GOOS=linux GOARCH=arm64 && \
 	$(MAKE) build GOOS=darwin GOARCH=amd64 && \
 	$(MAKE) build GOOS=darwin GOARCH=arm64 && \
-	$(MAKE) build GOOS=windows GOARCH=amd64 && \
-	mv ./bin/kubeshark_windows_amd64 ./bin/kubeshark.exe && \
+	$(MAKE) build-windows-amd64 && \
 	echo "---------" && \
 	find ./bin -ls
 
@@ -70,7 +84,7 @@ kubectl-view-kubeshark-resources: ## This command outputs all Kubernetes resourc
 	./kubectl.sh view-kubeshark-resources
 
 generate-helm-values: ## Generate the Helm values from config.yaml
-	./bin/kubeshark__ config > ./helm-chart/values.yaml
+	./bin/kubeshark__ config > ./helm-chart/values.yaml && sed -i 's/^license:.*/license: ""/' helm-chart/values.yaml
 
 generate-manifests: ## Generate the manifests from the Helm chart using default configuration
 	helm template kubeshark -n default ./helm-chart > ./manifests/complete.yaml
@@ -151,4 +165,15 @@ proxy:
 	kubeshark proxy
 
 port-forward-worker:
-	kubectl port-forward $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW) 8897:8897
+	kubectl port-forward $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW) 30001:30001
+
+release:
+	@cd ../worker && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../hub && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../front && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../kubeshark && sed -i 's/^version:.*/version: "$(VERSION)"/' helm-chart/Chart.yaml && make && make generate-helm-values && make generate-manifests
+	@git add -A . && git commit -m ":bookmark: Bump the Helm chart version to $(VERSION)" && git push
+	@git tag v$(VERSION) && git push origin --tags
+	@cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
+	@cd ../../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
+	@cd ../kubeshark

@@ -8,7 +8,7 @@ metadata:
   {{- if .Values.tap.annotations }}
     {{- toYaml .Values.tap.annotations | nindent 4 }}
   {{- end }}
-  name: kubeshark-cluster-role
+  name: kubeshark-cluster-role-{{ .Release.Namespace }}
   namespace: {{ .Release.Namespace }}
 rules:
   - apiGroups:
@@ -24,6 +24,14 @@ rules:
       - list
       - get
       - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+    resourceNames:
+      - kube-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -50,3 +58,4 @@ rules:
       - get
       - watch
       - update
+      - patch

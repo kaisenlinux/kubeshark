@@ -9,14 +9,14 @@ metadata:
   {{- if .Values.tap.annotations }}
     {{- toYaml .Values.tap.annotations | nindent 4 }}
   {{- end }}
-  name: {{ include "kubeshark.fullname" . }}-hub
+  name: {{ include "kubeshark.name" . }}-hub
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1  # Set the desired number of replicas
   selector:
     matchLabels:
       app.kubeshark.co/app: hub
-      {{- include "kubeshark.labels" . | nindent 6 }}
+      {{- include "kubeshark.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
@@ -29,6 +29,8 @@ spec:
         - name: kubeshark-hub
           command:
             - ./hub
+            - -port
+            - "8080"
           {{- if .Values.tap.debug }}
             - -debug
           {{- end }}
@@ -41,27 +43,24 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          envFrom:
-            - configMapRef:
-                name: kubeshark-config-map
-            - secretRef:
-                name: kubeshark-secret
+          - name: KUBESHARK_CLOUD_API_URL
+            value: 'https://api.kubeshark.co'
           image: '{{ .Values.tap.docker.registry }}/hub:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
-          imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
+          imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
           readinessProbe:
             periodSeconds: 1
             failureThreshold: 3
             successThreshold: 1
             initialDelaySeconds: 3
             tcpSocket:
-              port: 80
+              port: 8080
           livenessProbe:
             periodSeconds: 1
             failureThreshold: 3
             successThreshold: 1
             initialDelaySeconds: 3
             tcpSocket:
-              port: 80
+              port: 8080
           resources:
             limits:
               cpu: {{ .Values.tap.resources.hub.limits.cpu }}
@@ -69,3 +68,21 @@ spec:
             requests:
               cpu: {{ .Values.tap.resources.hub.requests.cpu }}
               memory: {{ .Values.tap.resources.hub.requests.memory }}
+          volumeMounts:
+          - name: saml-x509-volume
+            mountPath: "/etc/saml/x509"
+            readOnly: true
+      volumes:
+      - name: saml-x509-volume
+        projected:
+          sources:
+          - secret:
+              name: kubeshark-saml-x509-crt-secret
+              items:
+              - key: AUTH_SAML_X509_CRT
+                path: kubeshark.crt
+          - secret:
+              name: kubeshark-saml-x509-key-secret
+              items:
+              - key: AUTH_SAML_X509_KEY
+                path: kubeshark.key

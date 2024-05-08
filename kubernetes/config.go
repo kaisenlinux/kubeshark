@@ -10,15 +10,18 @@ import (
 )
 
 const (
-	SUFFIX_SECRET                = "secret"
-	SUFFIX_CONFIG_MAP            = "config-map"
-	SECRET_LICENSE               = "LICENSE"
-	CONFIG_POD_REGEX             = "POD_REGEX"
-	CONFIG_NAMESPACES            = "NAMESPACES"
-	CONFIG_SCRIPTING_ENV         = "SCRIPTING_ENV"
-	CONFIG_AUTH_ENABLED          = "AUTH_ENABLED"
-	CONFIG_AUTH_APPROVED_EMAILS  = "AUTH_APPROVED_EMAILS"
-	CONFIG_AUTH_APPROVED_DOMAINS = "AUTH_APPROVED_DOMAINS"
+	SUFFIX_SECRET                     = "secret"
+	SUFFIX_CONFIG_MAP                 = "config-map"
+	SECRET_LICENSE                    = "LICENSE"
+	CONFIG_POD_REGEX                  = "POD_REGEX"
+	CONFIG_NAMESPACES                 = "NAMESPACES"
+	CONFIG_SCRIPTING_ENV              = "SCRIPTING_ENV"
+	CONFIG_INGRESS_ENABLED            = "INGRESS_ENABLED"
+	CONFIG_INGRESS_HOST               = "INGRESS_HOST"
+	CONFIG_PROXY_FRONT_PORT           = "PROXY_FRONT_PORT"
+	CONFIG_AUTH_ENABLED               = "AUTH_ENABLED"
+	CONFIG_AUTH_TYPE                  = "AUTH_TYPE"
+	CONFIG_AUTH_SAML_IDP_METADATA_URL = "AUTH_SAML_IDP_METADATA_URL"
 )
 
 func SetSecret(provider *Provider, key string, value string) (updated bool, err error) {

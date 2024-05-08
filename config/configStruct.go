@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	KubeConfigPathConfigName = "kube-configpath"
+	KubeConfigPathConfigName = "kube-configPath"
 )
 
 func CreateDefaultConfig() ConfigStruct {
@@ -27,12 +27,58 @@ func CreateDefaultConfig() ConfigStruct {
 					},
 				},
 			},
+			Capabilities: configStructs.CapabilitiesConfig{
+				NetworkCapture: []string{
+					// NET_RAW is required to listen the network traffic
+					"NET_RAW",
+					// NET_ADMIN is required to listen the network traffic
+					"NET_ADMIN",
+				},
+				ServiceMeshCapture: []string{
+					// SYS_ADMIN is required to read /proc/PID/net/ns + to install eBPF programs (kernel < 5.8)
+					"SYS_ADMIN",
+					// SYS_PTRACE is required to set netns to other process + to open libssl.so of other process
+					"SYS_PTRACE",
+					// DAC_OVERRIDE is required to read /proc/PID/environ
+					"DAC_OVERRIDE",
+				},
+				KernelModule: []string{
+					// SYS_MODULE is required to install kernel modules
+					"SYS_MODULE",
+				},
+				EBPFCapture: []string{
+					// SYS_ADMIN is required to read /proc/PID/net/ns + to install eBPF programs (kernel < 5.8)
+					"SYS_ADMIN",
+					// SYS_PTRACE is required to set netns to other process + to open libssl.so of other process
+					"SYS_PTRACE",
+					// SYS_RESOURCE is required to change rlimits for eBPF
+					"SYS_RESOURCE",
+					// IPC_LOCK is required for ebpf perf buffers allocations after some amount of size buffer size:
+					// https://github.com/kubeshark/tracer/blob/13e24725ba8b98216dd0e553262e6d9c56dce5fa/main.go#L82)
+					"IPC_LOCK",
+				},
+			},
+			Auth: configStructs.AuthConfig{
+				Saml: configStructs.SamlConfig{
+					RoleAttribute: "role",
+					Roles: map[string]configStructs.Role{
+						"admin": {
+							Filter:                "",
+							CanReplayTraffic:      true,
+							CanDownloadPCAP:       true,
+							CanUseScripting:       true,
+							CanUpdateTargetedPods: true,
+							ShowAdminConsoleLink:  true,
+						},
+					},
+				},
+			},
 		},
 	}
 }
 
 type KubeConfig struct {
-	ConfigPathStr string `yaml:"configpath" json:"configpath"`
+	ConfigPathStr string `yaml:"configPath" json:"configPath"`
 	Context       string `yaml:"context" json:"context"`
 }
 
@@ -41,15 +87,17 @@ type ManifestsConfig struct {
 }
 
 type ConfigStruct struct {
-	Tap          configStructs.TapConfig       `yaml:"tap" json:"tap"`
-	Logs         configStructs.LogsConfig      `yaml:"logs" json:"logs"`
-	Config       configStructs.ConfigConfig    `yaml:"config,omitempty" json:"config,omitempty"`
-	Kube         KubeConfig                    `yaml:"kube" json:"kube"`
-	DumpLogs     bool                          `yaml:"dumplogs" json:"dumplogs" default:"false"`
-	HeadlessMode bool                          `yaml:"headless" json:"headless" default:"false"`
-	License      string                        `yaml:"license" json:"license" default:""`
-	Scripting    configStructs.ScriptingConfig `yaml:"scripting" json:"scripting"`
-	Manifests    ManifestsConfig               `yaml:"manifests,omitempty" json:"manifests,omitempty"`
+	Tap                 configStructs.TapConfig       `yaml:"tap" json:"tap"`
+	Logs                configStructs.LogsConfig      `yaml:"logs" json:"logs"`
+	Config              configStructs.ConfigConfig    `yaml:"config,omitempty" json:"config,omitempty"`
+	Kube                KubeConfig                    `yaml:"kube" json:"kube"`
+	DumpLogs            bool                          `yaml:"dumpLogs" json:"dumpLogs" default:"false"`
+	HeadlessMode        bool                          `yaml:"headless" json:"headless" default:"false"`
+	License             string                        `yaml:"license" json:"license" default:""`
+	CloudLicenseEnabled bool                          `yaml:"cloudLicenseEnabled" json:"cloudLicenseEnabled" default:"true"`
+	Scripting           configStructs.ScriptingConfig `yaml:"scripting" json:"scripting"`
+	Manifests           ManifestsConfig               `yaml:"manifests,omitempty" json:"manifests,omitempty"`
+	Timezone            string                        `yaml:"timezone" json:"timezone"`
 }
 
 func (config *ConfigStruct) ImagePullPolicy() v1.PullPolicy {

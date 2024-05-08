@@ -2,14 +2,13 @@ tap:
   docker:
     registry: docker.io/kubeshark
     tag: ""
-    imagepullpolicy: Always
-    imagepullsecrets: []
+    imagePullPolicy: Always
+    imagePullSecrets: []
   proxy:
     worker:
-      srvport: 8897
+      srvPort: 30001
     hub:
-      port: 8898
-      srvport: 8898
+      srvPort: 8898
     front:
       port: 8899
     host: 127.0.0.1
@@ -19,19 +18,13 @@ tap:
     repo: https://helm.kubeshark.co
     name: kubeshark
     namespace: default
-  persistentstorage: false
-  storagelimit: 500Mi
-  storageclass: standard
-  dryrun: false
-  pcap: ""
+  persistentStorage: false
+  persistentStorageStatic: false
+  efsFileSytemIdAndPath: ""
+  storageLimit: 500Mi
+  storageClass: standard
+  dryRun: false
   resources:
-    worker:
-      limits:
-        cpu: 750m
-        memory: 1Gi
-      requests:
-        cpu: 50m
-        memory: 50Mi
     hub:
       limits:
         cpu: 750m
@@ -39,12 +32,27 @@ tap:
       requests:
         cpu: 50m
         memory: 50Mi
-  servicemesh: true
+    sniffer:
+      limits:
+        cpu: 750m
+        memory: 1Gi
+      requests:
+        cpu: 50m
+        memory: 50Mi
+    tracer:
+      limits:
+        cpu: 750m
+        memory: 1Gi
+      requests:
+        cpu: 50m
+        memory: 50Mi
+  serviceMesh: true
   tls: true
-  ignoretainted: false
+  packetCapture: best
+  ignoreTainted: false
   labels: {}
   annotations: {}
-  nodeselectorterms:
+  nodeSelectorTerms:
   - matchExpressions:
     - key: kubernetes.io/os
       operator: In
@@ -52,28 +60,75 @@ tap:
       - linux
   auth:
     enabled: false
-    approvedemails: []
-    approveddomains: []
+    type: saml
+    saml:
+      idpMetadataUrl: ""
+      x509crt: ""
+      x509key: ""
+      roleAttribute: role
+      roles:
+        admin:
+          filter: ""
+          canReplayTraffic: true
+          canDownloadPCAP: true
+          canUseScripting: true
+          canUpdateTargetedPods: true
+          showAdminConsoleLink: true
   ingress:
     enabled: false
-    classname: ""
+    className: ""
     host: ks.svc.cluster.local
     tls: []
     annotations: {}
   ipv6: true
   debug: false
-  nokernelmodule: false
+  kernelModule:
+    enabled: true
+    image: kubeshark/pf-ring-module:all
+    unloadOnDestroy: false
   telemetry:
     enabled: true
+  defaultFilter: ""
+  replayDisabled: false
+  scriptingDisabled: false
+  targetedPodsUpdateDisabled: false
+  recordingDisabled: false
+  capabilities:
+    networkCapture:
+    - NET_RAW
+    - NET_ADMIN
+    serviceMeshCapture:
+    - SYS_ADMIN
+    - SYS_PTRACE
+    - DAC_OVERRIDE
+    kernelModule:
+    - SYS_MODULE
+    ebpfCapture:
+    - SYS_ADMIN
+    - SYS_PTRACE
+    - SYS_RESOURCE
+    - IPC_LOCK
+  globalFilter: ""
+  metrics:
+    port: 49100
+  misc:
+    jsonTTL: 5m
+    pcapTTL: 10s
+    pcapErrorTTL: 60s
+    trafficSampleRate: 100
+    tcpStreamChannelTimeoutMs: 10000
+    tcpStreamChannelTimeoutShow: false
 logs:
   file: ""
 kube:
-  configpath: ""
+  configPath: ""
   context: ""
-dumplogs: false
+dumpLogs: false
 headless: false
 license: ""
+cloudLicenseEnabled: true
 scripting:
   env: {}
   source: ""
-  watchscripts: true
+  watchScripts: true
+timezone: ""

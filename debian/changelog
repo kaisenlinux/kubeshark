@@ -1,3 +1,11 @@
+kubeshark (52.3.0-1kaisen) kaisen-packages; urgency=medium
+
+  * Import the 52.3.0 version
+  * Update the quilt patch
+  * Bump the golang-go version required
+
+ -- Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>  Tue, 07 May 2024 21:58:28 +0100
+
 kubeshark (51.0.14-1kaisen) kaisen-packages; urgency=medium
 
   * Import the 51.0.14 version

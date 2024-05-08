@@ -16,7 +16,7 @@ spec:
   selector:
     matchLabels:
       app.kubeshark.co/app: worker
-      {{- include "kubeshark.labels" . | nindent 6 }}
+      {{- include "kubeshark.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
@@ -25,27 +25,55 @@ spec:
       name: kubeshark-worker-daemon-set
       namespace: kubeshark
     spec:
+    {{- if .Values.tap.kernelModule.enabled }}
+      initContainers:
+      - name: load-pf-ring
+        image: {{ .Values.tap.kernelModule.image }}
+        imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
+        securityContext:
+          capabilities:
+            add:
+              {{- range .Values.tap.capabilities.kernelModule }}
+              {{ print "- " . }}
+              {{- end }}
+            drop:
+              - ALL
+        volumeMounts:
+        - name: lib-modules
+          mountPath: /lib/modules
+    {{- end }}
       containers:
         - command:
             - ./worker
             - -i
             - any
             - -port
-            - '{{ .Values.tap.proxy.worker.srvport }}'
-          {{- if .Values.tap.servicemesh }}
+            - '{{ .Values.tap.proxy.worker.srvPort }}'
+            - -metrics-port
+            - '{{ .Values.tap.metrics.port }}'
+            - -packet-capture
+            - '{{ .Values.tap.packetCapture }}'
+            - -unixsocket
+          {{- if .Values.tap.serviceMesh }}
             - -servicemesh
           {{- end }}
             - -procfs
             - /hostproc
+          {{- if .Values.tap.kernelModule.enabled }}
+            - -kernel-module
+          {{- end }}
           {{- if .Values.tap.debug }}
             - -debug
-          {{- end }}
-          {{- if .Values.tap.nokernelmodule }}
-            - -no-kernel-module
+            - -dumptracer
+            - "100000000"
           {{- end }}
           image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
-          imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
+          imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
           name: sniffer
+          ports:
+            - containerPort: {{ .Values.tap.metrics.port }}
+              protocol: TCP
+              name: metrics
           env:
           - name: POD_NAME
             valueFrom:
@@ -55,25 +83,30 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          envFrom:
-            - secretRef:
-                name: kubeshark-secret
+          - name: TCP_STREAM_CHANNEL_TIMEOUT_MS
+            value: '{{ .Values.tap.misc.tcpStreamChannelTimeoutMs }}'
+          - name: TCP_STREAM_CHANNEL_TIMEOUT_SHOW
+            value: '{{ .Values.tap.misc.tcpStreamChannelTimeoutShow }}'
+          - name: KUBESHARK_CLOUD_API_URL
+            value: 'https://api.kubeshark.co'
           resources:
             limits:
-              cpu: {{ .Values.tap.resources.worker.limits.cpu }}
-              memory: {{ .Values.tap.resources.worker.limits.memory }}
+              cpu: {{ .Values.tap.resources.sniffer.limits.cpu }}
+              memory: {{ .Values.tap.resources.sniffer.limits.memory }}
             requests:
-              cpu: {{ .Values.tap.resources.worker.requests.cpu }}
-              memory: {{ .Values.tap.resources.worker.requests.memory }}
+              cpu: {{ .Values.tap.resources.sniffer.requests.cpu }}
+              memory: {{ .Values.tap.resources.sniffer.requests.memory }}
           securityContext:
             capabilities:
               add:
-                - NET_RAW
-                - NET_ADMIN
-                - SYS_ADMIN
-                - SYS_PTRACE
-                - DAC_OVERRIDE
-                - SYS_MODULE
+                {{- range .Values.tap.capabilities.networkCapture }}
+                {{ print "- " . }}
+                {{- end }}
+                {{- if .Values.tap.serviceMesh }}
+                {{- range .Values.tap.capabilities.serviceMeshCapture }}
+                {{ print "- " . }}
+                {{- end }}
+                {{- end }}
               drop:
                 - ALL
           readinessProbe:
@@ -82,14 +115,14 @@ spec:
             successThreshold: 1
             initialDelaySeconds: 5
             tcpSocket:
-              port: {{ .Values.tap.proxy.worker.srvport }}
+              port: {{ .Values.tap.proxy.worker.srvPort }}
           livenessProbe:
             periodSeconds: 1
             failureThreshold: 3
             successThreshold: 1
             initialDelaySeconds: 5
             tcpSocket:
-              port: {{ .Values.tap.proxy.worker.srvport }}
+              port: {{ .Values.tap.proxy.worker.srvPort }}
           volumeMounts:
             - mountPath: /hostproc
               name: proc
@@ -99,6 +132,20 @@ spec:
               readOnly: true
             - mountPath: /app/data
               name: data
+      {{- if and (eq .Values.tap.kernelModule.enabled true) (eq .Values.tap.kernelModule.unloadOnDestroy true) }}
+        - name: unload-pf-ring
+          image: {{ .Values.tap.kernelModule.image }}
+          command: ["/bin/sh"]
+          args: ["-c", "trap 'rmmod pf_ring && sleep 3' SIGTERM; while true; do sleep 1; done"]
+          securityContext:
+            capabilities:
+              add:
+                {{- range .Values.tap.capabilities.kernelModule }}
+                {{ print "- " . }}
+                {{- end }}
+              drop:
+                - ALL
+      {{- end }}
       {{- if .Values.tap.tls }}
         - command:
             - ./tracer
@@ -108,7 +155,7 @@ spec:
             - -debug
           {{- end }}
           image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
-          imagePullPolicy: {{ .Values.tap.docker.imagepullpolicy }}
+          imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
           name: tracer
           env:
           - name: POD_NAME
@@ -119,18 +166,22 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          envFrom:
-            - secretRef:
-                name: kubeshark-secret
+          resources:
+            limits:
+              cpu: {{ .Values.tap.resources.tracer.limits.cpu }}
+              memory: {{ .Values.tap.resources.tracer.limits.memory }}
+            requests:
+              cpu: {{ .Values.tap.resources.tracer.requests.cpu }}
+              memory: {{ .Values.tap.resources.tracer.requests.memory }}
           securityContext:
             capabilities:
               add:
-                - NET_RAW
-                - NET_ADMIN
-                - SYS_ADMIN
-                - SYS_PTRACE
-                - DAC_OVERRIDE
-                - SYS_RESOURCE
+                {{- range .Values.tap.capabilities.ebpfCapture }}
+                {{ print "- " . }}
+                {{- end }}
+                {{- range .Values.tap.capabilities.networkCapture }}
+                {{ print "- " . }}
+                {{- end }}
               drop:
                 - ALL
           volumeMounts:
@@ -150,16 +201,16 @@ spec:
       tolerations:
         - effect: NoExecute
           operator: Exists
-{{- if not .Values.tap.ignoretainted }}
+{{- if not .Values.tap.ignoreTainted }}
         - effect: NoSchedule
           operator: Exists
 {{- end }}
-{{- if gt (len .Values.tap.nodeselectorterms) 0}}
+{{- if gt (len .Values.tap.nodeSelectorTerms) 0}}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
-              {{- toYaml .Values.tap.nodeselectorterms | nindent 12 }}
+              {{- toYaml .Values.tap.nodeSelectorTerms | nindent 12 }}
 {{- end }}
       volumes:
         - hostPath:
@@ -168,11 +219,14 @@ spec:
         - hostPath:
             path: /sys
           name: sys
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
         - name: data
-{{- if .Values.tap.persistentstorage }}
+{{- if .Values.tap.persistentStorage }}
           persistentVolumeClaim:
             claimName: kubeshark-persistent-volume-claim
 {{- else }}
           emptyDir:
-            sizeLimit: {{ .Values.tap.storagelimit }}
+            sizeLimit: {{ .Values.tap.storageLimit }}
 {{- end }}
