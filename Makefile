@@ -14,7 +14,7 @@ export VER?=0.0.0
 help: ## Print this help message.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build-debug:  ## Build for debuging.
+build-debug:  ## Build for debugging.
 	export CGO_ENABLED=1
 	export GCLFAGS='-gcflags="all=-N -l"'
 	${MAKE} build-base
@@ -89,15 +89,33 @@ generate-helm-values: ## Generate the Helm values from config.yaml
 generate-manifests: ## Generate the manifests from the Helm chart using default configuration
 	helm template kubeshark -n default ./helm-chart > ./manifests/complete.yaml
 
-logs-worker:
+logs-sniffer:
 	export LOGS_POD_PREFIX=kubeshark-worker-
+	export LOGS_CONTAINER='-c sniffer'
 	export LOGS_FOLLOW=
 	${MAKE} logs
 
-logs-worker-follow:
+logs-sniffer-follow:
 	export LOGS_POD_PREFIX=kubeshark-worker-
+	export LOGS_CONTAINER='-c sniffer'
 	export LOGS_FOLLOW=--follow
 	${MAKE} logs
+
+logs-tracer:
+	export LOGS_POD_PREFIX=kubeshark-worker-
+	export LOGS_CONTAINER='-c tracer'
+	export LOGS_FOLLOW=
+	${MAKE} logs
+
+logs-tracer-follow:
+	export LOGS_POD_PREFIX=kubeshark-worker-
+	export LOGS_CONTAINER='-c tracer'
+	export LOGS_FOLLOW=--follow
+	${MAKE} logs
+
+logs-worker: logs-sniffer
+
+logs-worker-follow: logs-sniffer-follow
 
 logs-hub:
 	export LOGS_POD_PREFIX=kubeshark-hub
@@ -120,7 +138,7 @@ logs-front-follow:
 	${MAKE} logs
 
 logs:
-	kubectl logs $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW)
+	kubectl logs $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_CONTAINER) $(LOGS_FOLLOW)
 
 ssh-node:
 	kubectl ssh node $$(kubectl get nodes | awk 'END {print $$1}')
@@ -141,22 +159,13 @@ exec:
 	kubectl exec --stdin --tty $$(kubectl get pods | awk '$$1 ~ /^$(EXEC_POD_PREFIX)/' | awk 'END {print $$1}') -- /bin/sh
 
 helm-install:
-	cd helm-chart && helm install kubeshark . && cd ..
-
-helm-install-canary:
-	cd helm-chart && helm install kubeshark . --set tap.docker.tag=canary && cd ..
-
-helm-install-dev:
-	cd helm-chart && helm install kubeshark . --set tap.docker.tag=dev && cd ..
+	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) && cd ..
 
 helm-install-debug:
-	cd helm-chart && helm install kubeshark . --set tap.debug=true && cd ..
+	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) --set tap.debug=true && cd ..
 
-helm-install-debug-canary:
-	cd helm-chart && helm install kubeshark . --set tap.debug=true --set tap.docker.tag=canary && cd ..
-
-helm-install-debug-dev:
-	cd helm-chart && helm install kubeshark . --set tap.debug=true --set tap.docker.tag=dev && cd ..
+helm-install-profile:
+	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) --set tap.misc.profile=true && cd ..
 
 helm-uninstall:
 	helm uninstall kubeshark
@@ -164,8 +173,8 @@ helm-uninstall:
 proxy:
 	kubeshark proxy
 
-port-forward-worker:
-	kubectl port-forward $$(kubectl get pods | awk '$$1 ~ /^$(LOGS_POD_PREFIX)/' | awk 'END {print $$1}') $(LOGS_FOLLOW) 30001:30001
+port-forward:
+	kubectl port-forward $$(kubectl get pods | awk '$$1 ~ /^$(POD_PREFIX)/' | awk 'END {print $$1}') $(SRC_PORT):$(DST_PORT)
 
 release:
 	@cd ../worker && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
@@ -177,3 +186,13 @@ release:
 	@cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
 	@cd ../../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
 	@cd ../kubeshark
+
+branch:
+	@cd ../worker && git checkout master && git pull && git checkout -b $(name); git push --set-upstream origin $(name)
+	@cd ../hub && git checkout master && git pull && git checkout -b $(name); git push --set-upstream origin $(name)
+	@cd ../front && git checkout master && git pull && git checkout -b $(name); git push --set-upstream origin $(name)
+
+switch-to-branch:
+	@cd ../worker && git checkout $(name)
+	@cd ../hub && git checkout $(name)
+	@cd ../front && git checkout $(name)

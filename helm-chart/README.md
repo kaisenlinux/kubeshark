@@ -23,6 +23,14 @@ git clone git@github.com:kubeshark/kubeshark.git --depth 1
 cd kubeshark/helm-chart
 ```
 
+In case you want to clone a specific tag of the repo (e.g. `v52.3.59`):
+
+```shell
+git clone git@github.com:kubeshark/kubeshark.git --depth 1 --branch <tag>
+cd kubeshark/helm-chart
+```
+> See the list of available tags here: https://github.com/kubeshark/kubeshark/tags
+
 Render the templates
 
 ```shell
@@ -117,6 +125,7 @@ Please refer to [metrics](./metrics.md) documentation for details.
 | `tap.proxy.front.port`                    | Front-facing service port                     | `8899`                                                  |
 | `tap.proxy.host`                          | Proxy server's IP                                   | `127.0.0.1`                                             |
 | `tap.namespaces`                          | List of namespaces for the traffic capture                 | `[]`                                                    |
+| `tap.excludedNamespaces`                  | List of namespaces to explicitly exclude                 | `[]`                                                    |
 | `tap.release.repo`                        | URL of the Helm chart repository             | `https://helm.kubeshark.co`                             |
 | `tap.release.name`                        | Helm release name                          | `kubeshark`                                             |
 | `tap.release.namespace`                   | Helm release namespace                | `default`                                               |
@@ -149,7 +158,7 @@ Please refer to [metrics](./metrics.md) documentation for details.
 | `tap.auth.saml.x509crt`                   | A self-signed X.509 `.cert` contents <br/>(effective, if `tap.auth.type = saml`)          | ``                                                      |
 | `tap.auth.saml.x509key`                   | A self-signed X.509 `.key` contents <br/>(effective, if `tap.auth.type = saml`)           | ``                                                      |
 | `tap.auth.saml.roleAttribute`             | A SAML attribute name corresponding to user's authorization role <br/>(effective, if `tap.auth.type = saml`)  | `role` |
-| `tap.auth.saml.roles`                     | A list of SAML authorization roles and their permissions <br/>(effective, if `tap.auth.type = saml`)  | `{"admin":{"canDownloadPCAP":true,"canReplayTraffic":true,"canUpdateTargetedPods":true,"canUseScripting":true,"filter":"","showAdminConsoleLink":true}}` |
+| `tap.auth.saml.roles`                     | A list of SAML authorization roles and their permissions <br/>(effective, if `tap.auth.type = saml`)  | `{"admin":{"canDownloadPCAP":true,"canUpdateTargetedPods":true,"canUseScripting":true, "canStopTrafficCapturing":true, "filter":"","showAdminConsoleLink":true}}` |
 | `tap.ingress.enabled`                     | Enable `Ingress`                                | `false`                                                 |
 | `tap.ingress.className`                   | Ingress class name                            | `""`                                                    |
 | `tap.ingress.host`                        | Host of the `Ingress`                          | `ks.svc.cluster.local`                                  |
@@ -157,12 +166,15 @@ Please refer to [metrics](./metrics.md) documentation for details.
 | `tap.ingress.annotations`                 | `Ingress` annotations                           | `{}`                                                    |
 | `tap.ipv6`                                | Enable IPv6 support for the front-end                        | `true`                                                  |
 | `tap.debug`                               | Enable debug mode                             | `false`                                                 |
-| `tap.kernelModule.enabled`                | Use PF_RING kernel module([details](PF_RING.md))      | `true`                                                 |
+| `tap.kernelModule.enabled`                | Use PF_RING kernel module([details](PF_RING.md))      | `false`                                                 |
 | `tap.kernelModule.image`                  | Container image containing PF_RING kernel module with supported kernel version([details](PF_RING.md))      | "kubeshark/pf-ring-module:all"                                                 |
 | `tap.kernelModule.unloadOnDestroy`        | Create additional container which watches for pod termination and unloads PF_RING kernel module. | `false`|
 | `tap.telemetry.enabled`                   | Enable anonymous usage statistics collection           | `true`                                                  |
 | `tap.defaultFilter`                       | Sets the default dashboard KFL filter (e.g. `http`)        | `""`                                                  |
-| `tap.globalFilter`                        | Prepends to any KFL filter and can be used to limit what is visible in the dashboard. For example, `redact("request.headers.Authorization")` will redact the appropriate field.       | `""`                                        |
+| `tap.globalFilter`                        | Prepends to any KFL filter and can be used to limit what is visible in the dashboard. For example, `redact("request.headers.Authorization")` will redact the appropriate field. Another example `!dns` will not show any DNS traffic.      | `""`                                        |
+| `tap.metrics.port`                  | Pod port used to expose Prometheus metrics          | `49100`                                                  |
+| `tap.stopped`                             | A flag indicating whether to start Kubeshark with traffic processing stopped resulting in almost no resource consumption (e.g. Kubeshark is dormant). This property can be dynamically control via the dashboard.         | `true`                                                  |
+| `tap.enabledDissectors`                   | This is an array of strings representing the list of supported protocols. Remove or comment out redundant protocols (e.g., dns).| The default list includes: amqp, dns , http, icmp, kafka, redis,sctp, syscall, ws. By design, it does not include the very powerful TCP dissector (`tcp`). Add this dissector to view all TCP messages (requires elevated amounts of CPU, memeory and storage).  |
 | `logs.file`                               | Logs dump path                      | `""`                                                    |
 | `kube.configPath`                         | Path to the `kubeconfig` file (`$HOME/.kube/config`)            | `""`                                                    |
 | `kube.context`                            | Kubernetes context to use for the deployment  | `""`                                                    |
@@ -172,8 +184,9 @@ Please refer to [metrics](./metrics.md) documentation for details.
 | `scripting.env`                           | Environment variables for the scripting      | `{}`                                                    |
 | `scripting.source`                        | Source directory of the scripts                | `""`                                                    |
 | `scripting.watchScripts`                  | Enable watch mode for the scripts in source directory          | `true`                                                  |
-| `tap.metrics.port`                  | Pod port used to expose Prometheus metrics          | `49100`                                                  |
 | `timezone`                                | IANA time zone applied to time shown in the front-end | `""` (local time zone applies) |
+| `supportChatEnabled`                      | Enable real-time support chat channel based on Intercom | `true` |
+| `internetConnectivity`                    | Turns off API requests that are dependant on Internet connectivity such as `telemetry` and `online-support`. | `true` |
 
 KernelMapping pairs kernel versions with a
                             DriverContainer image. Kernel versions can be matched

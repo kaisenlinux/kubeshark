@@ -193,6 +193,7 @@ func watchHubPod(ctx context.Context, kubernetesProvider *kubernetes.Provider, c
 					ready.Lock()
 					ready.Hub = true
 					ready.Unlock()
+					log.Info().Str("pod", kubernetes.HubPodName).Msg("Ready.")
 				}
 
 				ready.Lock()
@@ -282,6 +283,7 @@ func watchFrontPod(ctx context.Context, kubernetesProvider *kubernetes.Provider,
 					ready.Lock()
 					ready.Front = true
 					ready.Unlock()
+					log.Info().Str("pod", kubernetes.FrontPodName).Msg("Ready.")
 				}
 
 				ready.Lock()
@@ -435,6 +437,7 @@ func updateConfig(kubernetesProvider *kubernetes.Provider) {
 	_, _ = kubernetes.SetSecret(kubernetesProvider, kubernetes.SECRET_LICENSE, config.Config.License)
 	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_POD_REGEX, config.Config.Tap.PodRegexStr)
 	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_NAMESPACES, strings.Join(config.Config.Tap.Namespaces, ","))
+	_, _ = kubernetes.SetConfig(kubernetesProvider, kubernetes.CONFIG_EXCLUDED_NAMESPACES, strings.Join(config.Config.Tap.ExcludedNamespaces, ","))
 
 	data, err := json.Marshal(config.Config.Scripting.Env)
 	if err != nil {

@@ -4,6 +4,10 @@ tap:
     tag: ""
     imagePullPolicy: Always
     imagePullSecrets: []
+    overrideTag:
+      worker: ""
+      hub: ""
+      front: ""
   proxy:
     worker:
       srvPort: 30001
@@ -14,6 +18,9 @@ tap:
     host: 127.0.0.1
   regex: .*
   namespaces: []
+  excludedNamespaces: []
+  bpfOverride: ""
+  stopped: true
   release:
     repo: https://helm.kubeshark.co
     name: kubeshark
@@ -69,10 +76,10 @@ tap:
       roles:
         admin:
           filter: ""
-          canReplayTraffic: true
           canDownloadPCAP: true
           canUseScripting: true
           canUpdateTargetedPods: true
+          canStopTrafficCapturing: true
           showAdminConsoleLink: true
   ingress:
     enabled: false
@@ -83,16 +90,16 @@ tap:
   ipv6: true
   debug: false
   kernelModule:
-    enabled: true
+    enabled: false
     image: kubeshark/pf-ring-module:all
     unloadOnDestroy: false
   telemetry:
     enabled: true
   defaultFilter: ""
-  replayDisabled: false
   scriptingDisabled: false
   targetedPodsUpdateDisabled: false
   recordingDisabled: false
+  stopTrafficCapturingDisabled: false
   capabilities:
     networkCapture:
     - NET_RAW
@@ -109,6 +116,16 @@ tap:
     - SYS_RESOURCE
     - IPC_LOCK
   globalFilter: ""
+  enabledDissectors:
+  - amqp
+  - dns
+  - http
+  - icmp
+  - kafka
+  - redis
+  - sctp
+  - syscall
+  - ws
   metrics:
     port: 49100
   misc:
@@ -118,8 +135,12 @@ tap:
     trafficSampleRate: 100
     tcpStreamChannelTimeoutMs: 10000
     tcpStreamChannelTimeoutShow: false
+    resolutionStrategy: auto
+    profile: false
+    duplicateTimeframe: 200ms
 logs:
   file: ""
+  grep: ""
 kube:
   configPath: ""
   context: ""
@@ -127,6 +148,8 @@ dumpLogs: false
 headless: false
 license: ""
 cloudLicenseEnabled: true
+supportChatEnabled: true
+internetConnectivity: true
 scripting:
   env: {}
   source: ""

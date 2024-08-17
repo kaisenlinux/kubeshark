@@ -146,6 +146,7 @@ func loadConfigFile(config *ConfigStruct, silent bool) error {
 	} else {
 		ConfigFilePath = cwdConfig
 	}
+	defer reader.Close()
 
 	buf, err := io.ReadAll(reader)
 	if err != nil {
@@ -222,7 +223,7 @@ func mergeSetFlag(configElemValue reflect.Value, setValues []string) error {
 	}
 
 	if len(setErrors) > 0 {
-		return fmt.Errorf(strings.Join(setErrors, "\n"))
+		return errors.New(strings.Join(setErrors, "\n"))
 	}
 
 	return nil

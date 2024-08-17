@@ -62,12 +62,19 @@ spec:
           {{- if .Values.tap.kernelModule.enabled }}
             - -kernel-module
           {{- end }}
+          {{- if ne .Values.tap.packetCapture "ebpf" }}
+            - -disable-ebpf
+          {{- end }}
+            - -resolution-strategy
+            - '{{ .Values.tap.misc.resolutionStrategy }}'
           {{- if .Values.tap.debug }}
             - -debug
-            - -dumptracer
-            - "100000000"
           {{- end }}
-          image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
+        {{- if .Values.tap.docker.overrideTag.worker }}
+          image: '{{ .Values.tap.docker.registry }}/worker:{{ .Values.tap.docker.overrideTag.worker }}{{ include "kubeshark.dockerTagDebugVersion" . }}'
+        {{ else }}
+          image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}{{ include "kubeshark.dockerTagDebugVersion" . }}'
+        {{- end }}
           imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
           name: sniffer
           ports:
@@ -89,6 +96,8 @@ spec:
             value: '{{ .Values.tap.misc.tcpStreamChannelTimeoutShow }}'
           - name: KUBESHARK_CLOUD_API_URL
             value: 'https://api.kubeshark.co'
+          - name: PROFILING_ENABLED
+            value: '{{ .Values.tap.misc.profile }}'
           resources:
             limits:
               cpu: {{ .Values.tap.resources.sniffer.limits.cpu }}
@@ -151,10 +160,21 @@ spec:
             - ./tracer
             - -procfs
             - /hostproc
+          {{- if ne .Values.tap.packetCapture "ebpf" }}
+            - -disable-ebpf
+          {{- end }}
           {{- if .Values.tap.debug }}
             - -debug
           {{- end }}
-          image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
+          {{- if .Values.tap.misc.profile }}
+            - -port
+            - '{{ add .Values.tap.proxy.worker.srvPort 1 }}'
+          {{- end }}
+        {{- if .Values.tap.docker.overrideTag.worker }}
+          image: '{{ .Values.tap.docker.registry }}/worker:{{ .Values.tap.docker.overrideTag.worker }}{{ include "kubeshark.dockerTagDebugVersion" . }}'
+        {{ else }}
+          image: '{{ .Values.tap.docker.registry }}/worker:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}{{ include "kubeshark.dockerTagDebugVersion" . }}'
+        {{- end }}
           imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
           name: tracer
           env:
@@ -166,6 +186,8 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          - name: PROFILING_ENABLED
+            value: '{{ .Values.tap.misc.profile }}'
           resources:
             limits:
               cpu: {{ .Values.tap.resources.tracer.limits.cpu }}
@@ -193,6 +215,9 @@ spec:
               readOnly: true
             - mountPath: /app/data
               name: data
+            - mountPath: /etc/os-release
+              name: os-release
+              readOnly: true
       {{- end }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
@@ -222,6 +247,9 @@ spec:
         - name: lib-modules
           hostPath:
             path: /lib/modules
+        - hostPath:
+            path: /etc/os-release
+          name: os-release
         - name: data
 {{- if .Values.tap.persistentStorage }}
           persistentVolumeClaim:

@@ -17,6 +17,7 @@ const (
 	ProxyHubPortLabel            = "proxy-hub-port"
 	ProxyHostLabel               = "proxy-host"
 	NamespacesLabel              = "namespaces"
+	ExcludedNamespacesLabel      = "excludedNamespaces"
 	ReleaseNamespaceLabel        = "release-namespace"
 	PersistentStorageLabel       = "persistentStorage"
 	PersistentStorageStaticLabel = "persistentStorageStatic"
@@ -69,11 +70,18 @@ type ProxyConfig struct {
 	Host   string       `yaml:"host" json:"host" default:"127.0.0.1"`
 }
 
+type OverrideTagConfig struct {
+	Worker string `yaml:"worker" json:"worker"`
+	Hub    string `yaml:"hub" json:"hub"`
+	Front  string `yaml:"front" json:"front"`
+}
+
 type DockerConfig struct {
-	Registry         string   `yaml:"registry" json:"registry" default:"docker.io/kubeshark"`
-	Tag              string   `yaml:"tag" json:"tag" default:""`
-	ImagePullPolicy  string   `yaml:"imagePullPolicy" json:"imagePullPolicy" default:"Always"`
-	ImagePullSecrets []string `yaml:"imagePullSecrets" json:"imagePullSecrets"`
+	Registry         string            `yaml:"registry" json:"registry" default:"docker.io/kubeshark"`
+	Tag              string            `yaml:"tag" json:"tag" default:""`
+	ImagePullPolicy  string            `yaml:"imagePullPolicy" json:"imagePullPolicy" default:"Always"`
+	ImagePullSecrets []string          `yaml:"imagePullSecrets" json:"imagePullSecrets"`
+	OverrideTag      OverrideTagConfig `yaml:"overrideTag" json:"overrideTag"`
 }
 
 type ResourcesConfig struct {
@@ -83,12 +91,12 @@ type ResourcesConfig struct {
 }
 
 type Role struct {
-	Filter                string `yaml:"filter" json:"filter" default:""`
-	CanReplayTraffic      bool   `yaml:"canReplayTraffic" json:"canReplayTraffic" default:"false"`
-	CanDownloadPCAP       bool   `yaml:"canDownloadPCAP" json:"canDownloadPCAP" default:"false"`
-	CanUseScripting       bool   `yaml:"canUseScripting" json:"canUseScripting" default:"false"`
-	CanUpdateTargetedPods bool   `yaml:"canUpdateTargetedPods" json:"canUpdateTargetedPods" default:"false"`
-	ShowAdminConsoleLink  bool   `yaml:"showAdminConsoleLink" json:"showAdminConsoleLink" default:"false"`
+	Filter                  string `yaml:"filter" json:"filter" default:""`
+	CanDownloadPCAP         bool   `yaml:"canDownloadPCAP" json:"canDownloadPCAP" default:"false"`
+	CanUseScripting         bool   `yaml:"canUseScripting" json:"canUseScripting" default:"false"`
+	CanUpdateTargetedPods   bool   `yaml:"canUpdateTargetedPods" json:"canUpdateTargetedPods" default:"false"`
+	CanStopTrafficCapturing bool   `yaml:"canStopTrafficCapturing" json:"canStopTrafficCapturing" default:"false"`
+	ShowAdminConsoleLink    bool   `yaml:"showAdminConsoleLink" json:"showAdminConsoleLink" default:"false"`
 }
 
 type SamlConfig struct {
@@ -131,7 +139,7 @@ type CapabilitiesConfig struct {
 }
 
 type KernelModuleConfig struct {
-	Enabled         bool   `yaml:"enabled" json:"enabled" default:"true"`
+	Enabled         bool   `yaml:"enabled" json:"enabled" default:"false"`
 	Image           string `yaml:"image" json:"image" default:"kubeshark/pf-ring-module:all"`
 	UnloadOnDestroy bool   `yaml:"unloadOnDestroy" json:"unloadOnDestroy" default:"false"`
 }
@@ -147,43 +155,50 @@ type MiscConfig struct {
 	TrafficSampleRate           int    `yaml:"trafficSampleRate" json:"trafficSampleRate" default:"100"`
 	TcpStreamChannelTimeoutMs   int    `yaml:"tcpStreamChannelTimeoutMs" json:"tcpStreamChannelTimeoutMs" default:"10000"`
 	TcpStreamChannelTimeoutShow bool   `yaml:"tcpStreamChannelTimeoutShow" json:"tcpStreamChannelTimeoutShow" default:"false"`
+	ResolutionStrategy          string `yaml:"resolutionStrategy" json:"resolutionStrategy" default:"auto"`
+	Profile                     bool   `yaml:"profile" json:"profile" default:"false"`
+	DuplicateTimeframe          string `yaml:"duplicateTimeframe" json:"duplicateTimeframe" default:"200ms"`
 }
 
 type TapConfig struct {
-	Docker                     DockerConfig          `yaml:"docker" json:"docker"`
-	Proxy                      ProxyConfig           `yaml:"proxy" json:"proxy"`
-	PodRegexStr                string                `yaml:"regex" json:"regex" default:".*"`
-	Namespaces                 []string              `yaml:"namespaces" json:"namespaces" default:"[]"`
-	Release                    ReleaseConfig         `yaml:"release" json:"release"`
-	PersistentStorage          bool                  `yaml:"persistentStorage" json:"persistentStorage" default:"false"`
-	PersistentStorageStatic    bool                  `yaml:"persistentStorageStatic" json:"persistentStorageStatic" default:"false"`
-	EfsFileSytemIdAndPath      string                `yaml:"efsFileSytemIdAndPath" json:"efsFileSytemIdAndPath" default:""`
-	StorageLimit               string                `yaml:"storageLimit" json:"storageLimit" default:"500Mi"`
-	StorageClass               string                `yaml:"storageClass" json:"storageClass" default:"standard"`
-	DryRun                     bool                  `yaml:"dryRun" json:"dryRun" default:"false"`
-	Resources                  ResourcesConfig       `yaml:"resources" json:"resources"`
-	ServiceMesh                bool                  `yaml:"serviceMesh" json:"serviceMesh" default:"true"`
-	Tls                        bool                  `yaml:"tls" json:"tls" default:"true"`
-	PacketCapture              string                `yaml:"packetCapture" json:"packetCapture" default:"best"`
-	IgnoreTainted              bool                  `yaml:"ignoreTainted" json:"ignoreTainted" default:"false"`
-	Labels                     map[string]string     `yaml:"labels" json:"labels" default:"{}"`
-	Annotations                map[string]string     `yaml:"annotations" json:"annotations" default:"{}"`
-	NodeSelectorTerms          []v1.NodeSelectorTerm `yaml:"nodeSelectorTerms" json:"nodeSelectorTerms" default:"[]"`
-	Auth                       AuthConfig            `yaml:"auth" json:"auth"`
-	Ingress                    IngressConfig         `yaml:"ingress" json:"ingress"`
-	IPv6                       bool                  `yaml:"ipv6" json:"ipv6" default:"true"`
-	Debug                      bool                  `yaml:"debug" json:"debug" default:"false"`
-	KernelModule               KernelModuleConfig    `yaml:"kernelModule" json:"kernelModule"`
-	Telemetry                  TelemetryConfig       `yaml:"telemetry" json:"telemetry"`
-	DefaultFilter              string                `yaml:"defaultFilter" json:"defaultFilter"`
-	ReplayDisabled             bool                  `yaml:"replayDisabled" json:"replayDisabled" default:"false"`
-	ScriptingDisabled          bool                  `yaml:"scriptingDisabled" json:"scriptingDisabled" default:"false"`
-	TargetedPodsUpdateDisabled bool                  `yaml:"targetedPodsUpdateDisabled" json:"targetedPodsUpdateDisabled" default:"false"`
-	RecordingDisabled          bool                  `yaml:"recordingDisabled" json:"recordingDisabled" default:"false"`
-	Capabilities               CapabilitiesConfig    `yaml:"capabilities" json:"capabilities"`
-	GlobalFilter               string                `yaml:"globalFilter" json:"globalFilter"`
-	Metrics                    MetricsConfig         `yaml:"metrics" json:"metrics"`
-	Misc                       MiscConfig            `yaml:"misc" json:"misc"`
+	Docker                       DockerConfig          `yaml:"docker" json:"docker"`
+	Proxy                        ProxyConfig           `yaml:"proxy" json:"proxy"`
+	PodRegexStr                  string                `yaml:"regex" json:"regex" default:".*"`
+	Namespaces                   []string              `yaml:"namespaces" json:"namespaces" default:"[]"`
+	ExcludedNamespaces           []string              `yaml:"excludedNamespaces" json:"excludedNamespaces" default:"[]"`
+	BpfOverride                  string                `yaml:"bpfOverride" json:"bpfOverride" default:""`
+	Stopped                      bool                  `yaml:"stopped" json:"stopped" default:"true"`
+	Release                      ReleaseConfig         `yaml:"release" json:"release"`
+	PersistentStorage            bool                  `yaml:"persistentStorage" json:"persistentStorage" default:"false"`
+	PersistentStorageStatic      bool                  `yaml:"persistentStorageStatic" json:"persistentStorageStatic" default:"false"`
+	EfsFileSytemIdAndPath        string                `yaml:"efsFileSytemIdAndPath" json:"efsFileSytemIdAndPath" default:""`
+	StorageLimit                 string                `yaml:"storageLimit" json:"storageLimit" default:"500Mi"`
+	StorageClass                 string                `yaml:"storageClass" json:"storageClass" default:"standard"`
+	DryRun                       bool                  `yaml:"dryRun" json:"dryRun" default:"false"`
+	Resources                    ResourcesConfig       `yaml:"resources" json:"resources"`
+	ServiceMesh                  bool                  `yaml:"serviceMesh" json:"serviceMesh" default:"true"`
+	Tls                          bool                  `yaml:"tls" json:"tls" default:"true"`
+	PacketCapture                string                `yaml:"packetCapture" json:"packetCapture" default:"best"`
+	IgnoreTainted                bool                  `yaml:"ignoreTainted" json:"ignoreTainted" default:"false"`
+	Labels                       map[string]string     `yaml:"labels" json:"labels" default:"{}"`
+	Annotations                  map[string]string     `yaml:"annotations" json:"annotations" default:"{}"`
+	NodeSelectorTerms            []v1.NodeSelectorTerm `yaml:"nodeSelectorTerms" json:"nodeSelectorTerms" default:"[]"`
+	Auth                         AuthConfig            `yaml:"auth" json:"auth"`
+	Ingress                      IngressConfig         `yaml:"ingress" json:"ingress"`
+	IPv6                         bool                  `yaml:"ipv6" json:"ipv6" default:"true"`
+	Debug                        bool                  `yaml:"debug" json:"debug" default:"false"`
+	KernelModule                 KernelModuleConfig    `yaml:"kernelModule" json:"kernelModule"`
+	Telemetry                    TelemetryConfig       `yaml:"telemetry" json:"telemetry"`
+	DefaultFilter                string                `yaml:"defaultFilter" json:"defaultFilter"`
+	ScriptingDisabled            bool                  `yaml:"scriptingDisabled" json:"scriptingDisabled" default:"false"`
+	TargetedPodsUpdateDisabled   bool                  `yaml:"targetedPodsUpdateDisabled" json:"targetedPodsUpdateDisabled" default:"false"`
+	RecordingDisabled            bool                  `yaml:"recordingDisabled" json:"recordingDisabled" default:"false"`
+	StopTrafficCapturingDisabled bool                  `yaml:"stopTrafficCapturingDisabled" json:"stopTrafficCapturingDisabled" default:"false"`
+	Capabilities                 CapabilitiesConfig    `yaml:"capabilities" json:"capabilities"`
+	GlobalFilter                 string                `yaml:"globalFilter" json:"globalFilter"`
+	EnabledDissectors            []string              `yaml:"enabledDissectors" json:"enabledDissectors"`
+	Metrics                      MetricsConfig         `yaml:"metrics" json:"metrics"`
+	Misc                         MiscConfig            `yaml:"misc" json:"misc"`
 }
 
 func (config *TapConfig) PodRegex() *regexp.Regexp {
