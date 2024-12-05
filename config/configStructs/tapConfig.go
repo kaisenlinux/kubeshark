@@ -31,14 +31,28 @@ const (
 	IgnoreTaintedLabel           = "ignoreTainted"
 	IngressEnabledLabel          = "ingress-enabled"
 	TelemetryEnabledLabel        = "telemetry-enabled"
+	ResourceGuardEnabledLabel    = "resource-guard-enabled"
+	PprofPortLabel               = "pprof-port"
+	PprofViewLabel               = "pprof-view"
 	DebugLabel                   = "debug"
-	ContainerPort                = 80
-	ContainerPortStr             = "80"
+	ContainerPort                = 8080
+	ContainerPortStr             = "8080"
+	PcapDest                     = "dest"
+	PcapMaxSize                  = "maxSize"
+	PcapMaxTime                  = "maxTime"
+	PcapTimeInterval             = "timeInterval"
+	PcapKubeconfig               = "kubeconfig"
+	PcapDumpEnabled              = "enabled"
 )
 
-type ResourceLimits struct {
-	CPU    string `yaml:"cpu" json:"cpu" default:"750m"`
-	Memory string `yaml:"memory" json:"memory" default:"1Gi"`
+type ResourceLimitsHub struct {
+	CPU    string `yaml:"cpu" json:"cpu" default:"0"`
+	Memory string `yaml:"memory" json:"memory" default:"5Gi"`
+}
+
+type ResourceLimitsWorker struct {
+	CPU    string `yaml:"cpu" json:"cpu" default:"0"`
+	Memory string `yaml:"memory" json:"memory" default:"3Gi"`
 }
 
 type ResourceRequests struct {
@@ -46,9 +60,14 @@ type ResourceRequests struct {
 	Memory string `yaml:"memory" json:"memory" default:"50Mi"`
 }
 
-type ResourceRequirements struct {
-	Limits   ResourceLimits   `yaml:"limits" json:"limits"`
-	Requests ResourceRequests `yaml:"requests" json:"requests"`
+type ResourceRequirementsHub struct {
+	Limits   ResourceLimitsHub `yaml:"limits" json:"limits"`
+	Requests ResourceRequests  `yaml:"requests" json:"requests"`
+}
+
+type ResourceRequirementsWorker struct {
+	Limits   ResourceLimitsHub `yaml:"limits" json:"limits"`
+	Requests ResourceRequests  `yaml:"requests" json:"requests"`
 }
 
 type WorkerConfig struct {
@@ -70,6 +89,11 @@ type ProxyConfig struct {
 	Host   string       `yaml:"host" json:"host" default:"127.0.0.1"`
 }
 
+type OverrideImageConfig struct {
+	Worker string `yaml:"worker" json:"worker"`
+	Hub    string `yaml:"hub" json:"hub"`
+	Front  string `yaml:"front" json:"front"`
+}
 type OverrideTagConfig struct {
 	Worker string `yaml:"worker" json:"worker"`
 	Hub    string `yaml:"hub" json:"hub"`
@@ -77,17 +101,19 @@ type OverrideTagConfig struct {
 }
 
 type DockerConfig struct {
-	Registry         string            `yaml:"registry" json:"registry" default:"docker.io/kubeshark"`
-	Tag              string            `yaml:"tag" json:"tag" default:""`
-	ImagePullPolicy  string            `yaml:"imagePullPolicy" json:"imagePullPolicy" default:"Always"`
-	ImagePullSecrets []string          `yaml:"imagePullSecrets" json:"imagePullSecrets"`
-	OverrideTag      OverrideTagConfig `yaml:"overrideTag" json:"overrideTag"`
+	Registry         string              `yaml:"registry" json:"registry" default:"docker.io/kubeshark"`
+	Tag              string              `yaml:"tag" json:"tag" default:""`
+	TagLocked        bool                `yaml:"tagLocked" json:"tagLocked" default:"true"`
+	ImagePullPolicy  string              `yaml:"imagePullPolicy" json:"imagePullPolicy" default:"Always"`
+	ImagePullSecrets []string            `yaml:"imagePullSecrets" json:"imagePullSecrets"`
+	OverrideImage    OverrideImageConfig `yaml:"overrideImage" json:"overrideImage"`
+	OverrideTag      OverrideTagConfig   `yaml:"overrideTag" json:"overrideTag"`
 }
 
 type ResourcesConfig struct {
-	Hub     ResourceRequirements `yaml:"hub" json:"hub"`
-	Sniffer ResourceRequirements `yaml:"sniffer" json:"sniffer"`
-	Tracer  ResourceRequirements `yaml:"tracer" json:"tracer"`
+	Hub     ResourceRequirementsHub    `yaml:"hub" json:"hub"`
+	Sniffer ResourceRequirementsWorker `yaml:"sniffer" json:"sniffer"`
+	Tracer  ResourceRequirementsWorker `yaml:"tracer" json:"tracer"`
 }
 
 type Role struct {
@@ -131,21 +157,29 @@ type TelemetryConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled" default:"true"`
 }
 
+type ResourceGuardConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled" default:"false"`
+}
+
+type SentryConfig struct {
+	Enabled     bool   `yaml:"enabled" json:"enabled" default:"false"`
+	Environment string `yaml:"environment" json:"environment" default:"production"`
+}
+
 type CapabilitiesConfig struct {
 	NetworkCapture     []string `yaml:"networkCapture" json:"networkCapture"  default:"[]"`
 	ServiceMeshCapture []string `yaml:"serviceMeshCapture" json:"serviceMeshCapture"  default:"[]"`
-	KernelModule       []string `yaml:"kernelModule" json:"kernelModule"  default:"[]"`
 	EBPFCapture        []string `yaml:"ebpfCapture" json:"ebpfCapture"  default:"[]"`
-}
-
-type KernelModuleConfig struct {
-	Enabled         bool   `yaml:"enabled" json:"enabled" default:"false"`
-	Image           string `yaml:"image" json:"image" default:"kubeshark/pf-ring-module:all"`
-	UnloadOnDestroy bool   `yaml:"unloadOnDestroy" json:"unloadOnDestroy" default:"false"`
 }
 
 type MetricsConfig struct {
 	Port uint16 `yaml:"port" json:"port" default:"49100"`
+}
+
+type PprofConfig struct {
+	Enabled bool   `yaml:"enabled" json:"enabled" default:"false"`
+	Port    uint16 `yaml:"port" json:"port" default:"8000"`
+	View    string `yaml:"view" json:"view" default:"flamegraph"`
 }
 
 type MiscConfig struct {
@@ -156,8 +190,17 @@ type MiscConfig struct {
 	TcpStreamChannelTimeoutMs   int    `yaml:"tcpStreamChannelTimeoutMs" json:"tcpStreamChannelTimeoutMs" default:"10000"`
 	TcpStreamChannelTimeoutShow bool   `yaml:"tcpStreamChannelTimeoutShow" json:"tcpStreamChannelTimeoutShow" default:"false"`
 	ResolutionStrategy          string `yaml:"resolutionStrategy" json:"resolutionStrategy" default:"auto"`
-	Profile                     bool   `yaml:"profile" json:"profile" default:"false"`
 	DuplicateTimeframe          string `yaml:"duplicateTimeframe" json:"duplicateTimeframe" default:"200ms"`
+	DetectDuplicates            bool   `yaml:"detectDuplicates" json:"detectDuplicates" default:"false"`
+	StaleTimeoutSeconds         int    `yaml:"staleTimeoutSeconds" json:"staleTimeoutSeconds" default:"30"`
+}
+
+type PcapDumpConfig struct {
+	PcapDumpEnabled  bool   `yaml:"enabled" json:"enabled" default:"true"`
+	PcapTimeInterval string `yaml:"timeInterval" json:"timeInterval" default:"1m"`
+	PcapMaxTime      string `yaml:"maxTime" json:"maxTime" default:"1h"`
+	PcapMaxSize      string `yaml:"maxSize" json:"maxSize" default:"500MB"`
+	PcapSrcDir       string `yaml:"pcapSrcDir" json:"pcapSrcDir" default:"pcapdump"`
 }
 
 type TapConfig struct {
@@ -167,17 +210,18 @@ type TapConfig struct {
 	Namespaces                   []string              `yaml:"namespaces" json:"namespaces" default:"[]"`
 	ExcludedNamespaces           []string              `yaml:"excludedNamespaces" json:"excludedNamespaces" default:"[]"`
 	BpfOverride                  string                `yaml:"bpfOverride" json:"bpfOverride" default:""`
-	Stopped                      bool                  `yaml:"stopped" json:"stopped" default:"true"`
+	Stopped                      bool                  `yaml:"stopped" json:"stopped" default:"false"`
 	Release                      ReleaseConfig         `yaml:"release" json:"release"`
 	PersistentStorage            bool                  `yaml:"persistentStorage" json:"persistentStorage" default:"false"`
 	PersistentStorageStatic      bool                  `yaml:"persistentStorageStatic" json:"persistentStorageStatic" default:"false"`
 	EfsFileSytemIdAndPath        string                `yaml:"efsFileSytemIdAndPath" json:"efsFileSytemIdAndPath" default:""`
-	StorageLimit                 string                `yaml:"storageLimit" json:"storageLimit" default:"500Mi"`
+	StorageLimit                 string                `yaml:"storageLimit" json:"storageLimit" default:"5000Mi"`
 	StorageClass                 string                `yaml:"storageClass" json:"storageClass" default:"standard"`
 	DryRun                       bool                  `yaml:"dryRun" json:"dryRun" default:"false"`
 	Resources                    ResourcesConfig       `yaml:"resources" json:"resources"`
 	ServiceMesh                  bool                  `yaml:"serviceMesh" json:"serviceMesh" default:"true"`
 	Tls                          bool                  `yaml:"tls" json:"tls" default:"true"`
+	DisableTlsLog                bool                  `yaml:"disableTlsLog" json:"disableTlsLog" default:"true"`
 	PacketCapture                string                `yaml:"packetCapture" json:"packetCapture" default:"best"`
 	IgnoreTainted                bool                  `yaml:"ignoreTainted" json:"ignoreTainted" default:"false"`
 	Labels                       map[string]string     `yaml:"labels" json:"labels" default:"{}"`
@@ -187,17 +231,20 @@ type TapConfig struct {
 	Ingress                      IngressConfig         `yaml:"ingress" json:"ingress"`
 	IPv6                         bool                  `yaml:"ipv6" json:"ipv6" default:"true"`
 	Debug                        bool                  `yaml:"debug" json:"debug" default:"false"`
-	KernelModule                 KernelModuleConfig    `yaml:"kernelModule" json:"kernelModule"`
 	Telemetry                    TelemetryConfig       `yaml:"telemetry" json:"telemetry"`
-	DefaultFilter                string                `yaml:"defaultFilter" json:"defaultFilter"`
+	ResourceGuard                ResourceGuardConfig   `yaml:"resourceGuard" json:"resourceGuard"`
+	Sentry                       SentryConfig          `yaml:"sentry" json:"sentry"`
+	DefaultFilter                string                `yaml:"defaultFilter" json:"defaultFilter" default:"!dns and !tcp and !udp and !icmp"`
 	ScriptingDisabled            bool                  `yaml:"scriptingDisabled" json:"scriptingDisabled" default:"false"`
 	TargetedPodsUpdateDisabled   bool                  `yaml:"targetedPodsUpdateDisabled" json:"targetedPodsUpdateDisabled" default:"false"`
+	PresetFiltersChangingEnabled bool                  `yaml:"presetFiltersChangingEnabled" json:"presetFiltersChangingEnabled" default:"true"`
 	RecordingDisabled            bool                  `yaml:"recordingDisabled" json:"recordingDisabled" default:"false"`
 	StopTrafficCapturingDisabled bool                  `yaml:"stopTrafficCapturingDisabled" json:"stopTrafficCapturingDisabled" default:"false"`
 	Capabilities                 CapabilitiesConfig    `yaml:"capabilities" json:"capabilities"`
-	GlobalFilter                 string                `yaml:"globalFilter" json:"globalFilter"`
+	GlobalFilter                 string                `yaml:"globalFilter" json:"globalFilter" default:""`
 	EnabledDissectors            []string              `yaml:"enabledDissectors" json:"enabledDissectors"`
 	Metrics                      MetricsConfig         `yaml:"metrics" json:"metrics"`
+	Pprof                        PprofConfig           `yaml:"pprof" json:"pprof"`
 	Misc                         MiscConfig            `yaml:"misc" json:"misc"`
 }
 

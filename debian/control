@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Kevin Chevreuil - Kaisen <kaisen@kaisenlinux.org>
 Rules-Requires-Root: no
 Build-Depends:
- debhelper-compat (= 13), dh-golang, golang-go (>= 1.20)
+ debhelper-compat (= 13), dh-golang, golang-go (>= 1.21.1)
 Standards-Version: 4.6.2
 Homepage: https://kubeshark.co/
 Vcs-Browser: https://gitlab.com/kaisenlinux/packages/kubeshark

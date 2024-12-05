@@ -92,10 +92,10 @@ func runProxy(block bool, noBrowser bool) {
 		establishedProxy = true
 		okToOpen("Kubeshark", frontUrl, noBrowser)
 	}
-
 	if establishedProxy && block {
 		utils.WaitForTermination(ctx, cancel)
 	}
+
 }
 
 func okToOpen(name string, url string, noBrowser bool) {

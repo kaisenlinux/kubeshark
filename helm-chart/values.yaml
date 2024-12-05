@@ -1,9 +1,15 @@
+# find a detailed description here: https://github.com/kubeshark/kubeshark/blob/master/helm-chart/README.md
 tap:
   docker:
     registry: docker.io/kubeshark
     tag: ""
+    tagLocked: true
     imagePullPolicy: Always
     imagePullSecrets: []
+    overrideImage:
+      worker: ""
+      hub: ""
+      front: ""
     overrideTag:
       worker: ""
       hub: ""
@@ -20,7 +26,7 @@ tap:
   namespaces: []
   excludedNamespaces: []
   bpfOverride: ""
-  stopped: true
+  stopped: false
   release:
     repo: https://helm.kubeshark.co
     name: kubeshark
@@ -28,33 +34,34 @@ tap:
   persistentStorage: false
   persistentStorageStatic: false
   efsFileSytemIdAndPath: ""
-  storageLimit: 500Mi
+  storageLimit: 5000Mi
   storageClass: standard
   dryRun: false
   resources:
     hub:
       limits:
-        cpu: 750m
-        memory: 1Gi
+        cpu: "0"
+        memory: 5Gi
       requests:
         cpu: 50m
         memory: 50Mi
     sniffer:
       limits:
-        cpu: 750m
-        memory: 1Gi
+        cpu: "0"
+        memory: 5Gi
       requests:
         cpu: 50m
         memory: 50Mi
     tracer:
       limits:
-        cpu: 750m
-        memory: 1Gi
+        cpu: "0"
+        memory: 5Gi
       requests:
         cpu: 50m
         memory: 50Mi
   serviceMesh: true
   tls: true
+  disableTlsLog: true
   packetCapture: best
   ignoreTainted: false
   labels: {}
@@ -89,15 +96,17 @@ tap:
     annotations: {}
   ipv6: true
   debug: false
-  kernelModule:
-    enabled: false
-    image: kubeshark/pf-ring-module:all
-    unloadOnDestroy: false
   telemetry:
     enabled: true
-  defaultFilter: ""
+  resourceGuard:
+    enabled: false
+  sentry:
+    enabled: false
+    environment: production
+  defaultFilter: "!dns and !tcp and !udp and !icmp"
   scriptingDisabled: false
   targetedPodsUpdateDisabled: false
+  presetFiltersChangingEnabled: true
   recordingDisabled: false
   stopTrafficCapturingDisabled: false
   capabilities:
@@ -108,8 +117,6 @@ tap:
     - SYS_ADMIN
     - SYS_PTRACE
     - DAC_OVERRIDE
-    kernelModule:
-    - SYS_MODULE
     ebpfCapture:
     - SYS_ADMIN
     - SYS_PTRACE
@@ -126,8 +133,13 @@ tap:
   - sctp
   - syscall
   - ws
+  - tls
   metrics:
     port: 49100
+  pprof:
+    enabled: false
+    port: 8000
+    view: flamegraph
   misc:
     jsonTTL: 5m
     pcapTTL: 10s
@@ -136,11 +148,18 @@ tap:
     tcpStreamChannelTimeoutMs: 10000
     tcpStreamChannelTimeoutShow: false
     resolutionStrategy: auto
-    profile: false
     duplicateTimeframe: 200ms
+    detectDuplicates: false
+    staleTimeoutSeconds: 30
 logs:
   file: ""
   grep: ""
+pcapdump:
+  enabled: true
+  timeInterval: 1m
+  maxTime: 1h
+  maxSize: 500MB
+  pcapSrcDir: pcapdump
 kube:
   configPath: ""
   context: ""
@@ -150,8 +169,12 @@ license: ""
 cloudLicenseEnabled: true
 supportChatEnabled: true
 internetConnectivity: true
+dissectorsUpdatingEnabled: true
 scripting:
   env: {}
   source: ""
+  sources: []
   watchScripts: true
+  active: []
+  console: true
 timezone: ""

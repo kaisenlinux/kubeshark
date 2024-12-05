@@ -5,11 +5,8 @@ SHELL=/bin/bash
 .ONESHELL:
 
 SUFFIX=$(GOOS)_$(GOARCH)
-COMMIT_HASH=$(shell git rev-parse HEAD)
-GIT_BRANCH=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
-GIT_VERSION=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
 BUILD_TIMESTAMP=$(shell date +%s)
-export VER?=0.0.0
+export VER?=52.3.90
 
 help: ## Print this help message.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -32,8 +29,6 @@ build-race: ## Build with -race flag.
 
 build-base: ## Build binary (select the platform via GOOS / GOARCH env variables).
 	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
-					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
-					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
 					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
@@ -42,8 +37,6 @@ build-base: ## Build binary (select the platform via GOOS / GOARCH env variables
 
 build-brew: ## Build binary for brew/core CI
 	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
-					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
-					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
 					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
@@ -61,9 +54,6 @@ build-all: ## Build for all supported platforms.
 	mkdir -p bin && sed s/_VER_/$(VER)/g RELEASE.md.TEMPLATE >  bin/README.md && \
 	$(MAKE) build GOOS=linux GOARCH=amd64 && \
 	$(MAKE) build GOOS=linux GOARCH=arm64 && \
-	$(MAKE) build GOOS=darwin GOARCH=amd64 && \
-	$(MAKE) build GOOS=darwin GOARCH=arm64 && \
-	$(MAKE) build-windows-amd64 && \
 	echo "---------" && \
 	find ./bin -ls
 
@@ -84,7 +74,8 @@ kubectl-view-kubeshark-resources: ## This command outputs all Kubernetes resourc
 	./kubectl.sh view-kubeshark-resources
 
 generate-helm-values: ## Generate the Helm values from config.yaml
-	./bin/kubeshark__ config > ./helm-chart/values.yaml && sed -i 's/^license:.*/license: ""/' helm-chart/values.yaml
+	mv ~/.kubeshark/config.yaml ~/.kubeshark/config.yaml.old; bin/kubeshark__ config>helm-chart/values.yaml;mv ~/.kubeshark/config.yaml.old ~/.kubeshark/config.yaml
+	sed -i 's/^license:.*/license: ""/' helm-chart/values.yaml && sed -i '1i # find a detailed description here: https://github.com/kubeshark/kubeshark/blob/master/helm-chart/README.md' helm-chart/values.yaml 
 
 generate-manifests: ## Generate the manifests from the Helm chart using default configuration
 	helm template kubeshark -n default ./helm-chart > ./manifests/complete.yaml
@@ -165,7 +156,7 @@ helm-install-debug:
 	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) --set tap.debug=true && cd ..
 
 helm-install-profile:
-	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) --set tap.misc.profile=true && cd ..
+	cd helm-chart && helm install kubeshark . --set tap.docker.tag=$(TAG) --set tap.pprof.enabled=true && cd ..
 
 helm-uninstall:
 	helm uninstall kubeshark
@@ -178,14 +169,27 @@ port-forward:
 
 release:
 	@cd ../worker && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../tracer && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
 	@cd ../hub && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
 	@cd ../front && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
-	@cd ../kubeshark && sed -i 's/^version:.*/version: "$(VERSION)"/' helm-chart/Chart.yaml && make && make generate-helm-values && make generate-manifests
+	@cd ../kubeshark && git checkout master && git pull && sed -i 's/^version:.*/version: "$(VERSION)"/' helm-chart/Chart.yaml && make && make generate-helm-values && make generate-manifests
 	@git add -A . && git commit -m ":bookmark: Bump the Helm chart version to $(VERSION)" && git push
-	@git tag v$(VERSION) && git push origin --tags
+	@git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
 	@cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
-	@cd ../../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
+	@cd ../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
 	@cd ../kubeshark
+
+soft-release:
+	@cd ../worker && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../tracer && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../hub && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../front && git checkout master && git pull && git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	@cd ../kubeshark && git checkout master && git pull && sed -i 's/^version:.*/version: "$(VERSION)"/' helm-chart/Chart.yaml && make && make generate-helm-values && make generate-manifests
+	@git add -A . && git commit -m ":bookmark: Bump the Helm chart version to $(VERSION)" && git push
+	# @git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
+	# @cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
+	# @cd ../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
+	# @cd ../kubeshark
 
 branch:
 	@cd ../worker && git checkout master && git pull && git checkout -b $(name); git push --set-upstream origin $(name)

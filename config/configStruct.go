@@ -42,10 +42,6 @@ func CreateDefaultConfig() ConfigStruct {
 					// DAC_OVERRIDE is required to read /proc/PID/environ
 					"DAC_OVERRIDE",
 				},
-				KernelModule: []string{
-					// SYS_MODULE is required to install kernel modules
-					"SYS_MODULE",
-				},
 				EBPFCapture: []string{
 					// SYS_ADMIN is required to read /proc/PID/net/ns + to install eBPF programs (kernel < 5.8)
 					"SYS_ADMIN",
@@ -83,7 +79,9 @@ func CreateDefaultConfig() ConfigStruct {
 				"sctp",
 				"syscall",
 				// "tcp",
+				// "udp",
 				"ws",
+				"tls",
 			},
 		},
 	}
@@ -99,19 +97,21 @@ type ManifestsConfig struct {
 }
 
 type ConfigStruct struct {
-	Tap                  configStructs.TapConfig       `yaml:"tap" json:"tap"`
-	Logs                 configStructs.LogsConfig      `yaml:"logs" json:"logs"`
-	Config               configStructs.ConfigConfig    `yaml:"config,omitempty" json:"config,omitempty"`
-	Kube                 KubeConfig                    `yaml:"kube" json:"kube"`
-	DumpLogs             bool                          `yaml:"dumpLogs" json:"dumpLogs" default:"false"`
-	HeadlessMode         bool                          `yaml:"headless" json:"headless" default:"false"`
-	License              string                        `yaml:"license" json:"license" default:""`
-	CloudLicenseEnabled  bool                          `yaml:"cloudLicenseEnabled" json:"cloudLicenseEnabled" default:"true"`
-	SupportChatEnabled   bool                          `yaml:"supportChatEnabled" json:"supportChatEnabled" default:"true"`
-	InternetConnectivity bool                          `yaml:"internetConnectivity" json:"internetConnectivity" default:"true"`
-	Scripting            configStructs.ScriptingConfig `yaml:"scripting" json:"scripting"`
-	Manifests            ManifestsConfig               `yaml:"manifests,omitempty" json:"manifests,omitempty"`
-	Timezone             string                        `yaml:"timezone" json:"timezone"`
+	Tap                       configStructs.TapConfig       `yaml:"tap" json:"tap"`
+	Logs                      configStructs.LogsConfig      `yaml:"logs" json:"logs"`
+	Config                    configStructs.ConfigConfig    `yaml:"config,omitempty" json:"config,omitempty"`
+	PcapDump                  configStructs.PcapDumpConfig  `yaml:"pcapdump" json:"pcapdump"`
+	Kube                      KubeConfig                    `yaml:"kube" json:"kube"`
+	DumpLogs                  bool                          `yaml:"dumpLogs" json:"dumpLogs" default:"false"`
+	HeadlessMode              bool                          `yaml:"headless" json:"headless" default:"false"`
+	License                   string                        `yaml:"license" json:"license" default:""`
+	CloudLicenseEnabled       bool                          `yaml:"cloudLicenseEnabled" json:"cloudLicenseEnabled" default:"true"`
+	SupportChatEnabled        bool                          `yaml:"supportChatEnabled" json:"supportChatEnabled" default:"true"`
+	InternetConnectivity      bool                          `yaml:"internetConnectivity" json:"internetConnectivity" default:"true"`
+	DissectorsUpdatingEnabled bool                          `yaml:"dissectorsUpdatingEnabled" json:"dissectorsUpdatingEnabled" default:"true"`
+	Scripting                 configStructs.ScriptingConfig `yaml:"scripting" json:"scripting"`
+	Manifests                 ManifestsConfig               `yaml:"manifests,omitempty" json:"manifests,omitempty"`
+	Timezone                  string                        `yaml:"timezone" json:"timezone"`
 }
 
 func (config *ConfigStruct) ImagePullPolicy() v1.PullPolicy {

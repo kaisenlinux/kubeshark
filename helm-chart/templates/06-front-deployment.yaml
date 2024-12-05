@@ -24,8 +24,6 @@ spec:
     spec:
       containers:
         - env:
-            - name: REACT_APP_DEFAULT_FILTER
-              value: '{{ not (eq .Values.tap.defaultFilter "") | ternary .Values.tap.defaultFilter " " }}'
             - name: REACT_APP_AUTH_ENABLED
               value: '{{- if or (and .Values.cloudLicenseEnabled (not (empty .Values.license))) (not .Values.internetConnectivity) -}}
                       "false"
@@ -42,6 +40,8 @@ spec:
               value: '{{ .Values.tap.scriptingDisabled }}'
             - name: REACT_APP_TARGETED_PODS_UPDATE_DISABLED
               value: '{{ .Values.tap.targetedPodsUpdateDisabled }}'
+            - name: REACT_APP_PRESET_FILTERS_CHANGING_ENABLED
+              value: '{{ .Values.tap.presetFiltersChangingEnabled }}'
             - name: REACT_APP_BPF_OVERRIDE_DISABLED
               value: '{{ eq .Values.tap.packetCapture "ebpf" | ternary "true" "false" }}'
             - name: REACT_APP_RECORDING_DISABLED
@@ -60,12 +60,26 @@ spec:
                       {{- end }}'
             - name: REACT_APP_SUPPORT_CHAT_ENABLED
               value: '{{ and .Values.supportChatEnabled .Values.internetConnectivity | ternary "true" "false" }}'
-        {{- if .Values.tap.docker.overrideTag.front }}
+            - name: REACT_APP_DISSECTORS_UPDATING_ENABLED
+              value: '{{ .Values.dissectorsUpdatingEnabled | ternary "true" "false" }}'
+            - name: REACT_APP_SENTRY_ENABLED
+              value: '{{ (include "sentry.enabled" .) }}'
+            - name: REACT_APP_SENTRY_ENVIRONMENT
+              value: '{{ .Values.tap.sentry.environment }}'
+        {{- if .Values.tap.docker.overrideImage.front }}
+          image: '{{ .Values.tap.docker.overrideImage.front }}'
+        {{- else if .Values.tap.docker.overrideTag.front }}
           image: '{{ .Values.tap.docker.registry }}/front:{{ .Values.tap.docker.overrideTag.front }}'
         {{ else }}
-          image: '{{ .Values.tap.docker.registry }}/front:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (printf "v%s" .Chart.Version) }}'
+          image: '{{ .Values.tap.docker.registry }}/front:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (include "kubeshark.defaultVersion" .) }}'
         {{- end }}
           imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
+        {{- if .Values.tap.docker.imagePullSecrets }}
+          imagePullSecrets:
+            {{- range .Values.tap.docker.imagePullSecrets }}
+            - name: {{ . }}
+            {{- end }}
+        {{- end }}
           name: kubeshark-front
           livenessProbe:
             periodSeconds: 1
