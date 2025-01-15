@@ -16,7 +16,7 @@ tap:
       front: ""
   proxy:
     worker:
-      srvPort: 30001
+      srvPort: 48999
     hub:
       srvPort: 8898
     front:
@@ -59,6 +59,17 @@ tap:
       requests:
         cpu: 50m
         memory: 50Mi
+  probes:
+    hub:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      successThreshold: 1
+      failureThreshold: 3
+    sniffer:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      successThreshold: 1
+      failureThreshold: 3
   serviceMesh: true
   tls: true
   disableTlsLog: true
@@ -85,6 +96,10 @@ tap:
           filter: ""
           canDownloadPCAP: true
           canUseScripting: true
+          scriptingPermissions:
+            canSave: true
+            canActivate: true
+            canDelete: true
           canUpdateTargetedPods: true
           canStopTrafficCapturing: true
           showAdminConsoleLink: true
@@ -103,7 +118,7 @@ tap:
   sentry:
     enabled: false
     environment: production
-  defaultFilter: "!dns and !tcp and !udp and !icmp"
+  defaultFilter: "!dns and !error"
   scriptingDisabled: false
   targetedPodsUpdateDisabled: false
   presetFiltersChangingEnabled: true
@@ -133,7 +148,10 @@ tap:
   - sctp
   - syscall
   - ws
-  - tls
+  - ldap
+  - radius
+  customMacros:
+    https: tls and (http or http2)
   metrics:
     port: 49100
   pprof:
@@ -160,6 +178,7 @@ pcapdump:
   maxTime: 1h
   maxSize: 500MB
   pcapSrcDir: pcapdump
+  time: time
 kube:
   configPath: ""
   context: ""
@@ -178,3 +197,4 @@ scripting:
   active: []
   console: true
 timezone: ""
+logLevel: warning

@@ -5,8 +5,11 @@ SHELL=/bin/bash
 .ONESHELL:
 
 SUFFIX=$(GOOS)_$(GOARCH)
+COMMIT_HASH=$(shell git rev-parse HEAD)
+GIT_BRANCH=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
+GIT_VERSION=$(shell git branch --show-current | tr '[:upper:]' '[:lower:]')
 BUILD_TIMESTAMP=$(shell date +%s)
-export VER?=52.3.90
+export VER?=0.0.0
 
 help: ## Print this help message.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,6 +32,8 @@ build-race: ## Build with -race flag.
 
 build-base: ## Build binary (select the platform via GOOS / GOARCH env variables).
 	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
+					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
+					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
 					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
@@ -37,6 +42,8 @@ build-base: ## Build binary (select the platform via GOOS / GOARCH env variables
 
 build-brew: ## Build binary for brew/core CI
 	go build ${GCLFAGS} -ldflags="${LDFLAGS_EXT} \
+					-X 'github.com/kubeshark/kubeshark/misc.GitCommitHash=$(COMMIT_HASH)' \
+					-X 'github.com/kubeshark/kubeshark/misc.Branch=$(GIT_BRANCH)' \
 					-X 'github.com/kubeshark/kubeshark/misc.BuildTimestamp=$(BUILD_TIMESTAMP)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Platform=$(SUFFIX)' \
 					-X 'github.com/kubeshark/kubeshark/misc.Ver=$(VER)'" \
@@ -54,6 +61,9 @@ build-all: ## Build for all supported platforms.
 	mkdir -p bin && sed s/_VER_/$(VER)/g RELEASE.md.TEMPLATE >  bin/README.md && \
 	$(MAKE) build GOOS=linux GOARCH=amd64 && \
 	$(MAKE) build GOOS=linux GOARCH=arm64 && \
+	$(MAKE) build GOOS=darwin GOARCH=amd64 && \
+	$(MAKE) build GOOS=darwin GOARCH=arm64 && \
+	$(MAKE) build-windows-amd64 && \
 	echo "---------" && \
 	find ./bin -ls
 
@@ -176,7 +186,7 @@ release:
 	@git add -A . && git commit -m ":bookmark: Bump the Helm chart version to $(VERSION)" && git push
 	@git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
 	@cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
-	@cd ../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
+	@cd ../../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
 	@cd ../kubeshark
 
 soft-release:
@@ -188,7 +198,7 @@ soft-release:
 	@git add -A . && git commit -m ":bookmark: Bump the Helm chart version to $(VERSION)" && git push
 	# @git tag -d v$(VERSION); git tag v$(VERSION) && git push origin --tags
 	# @cd helm-chart && cp -r . ../../kubeshark.github.io/charts/chart
-	# @cd ../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
+	# @cd ../../kubeshark.github.io/ && git add -A . && git commit -m ":sparkles: Update the Helm chart" && git push
 	# @cd ../kubeshark
 
 branch:

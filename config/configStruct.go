@@ -59,9 +59,14 @@ func CreateDefaultConfig() ConfigStruct {
 					RoleAttribute: "role",
 					Roles: map[string]configStructs.Role{
 						"admin": {
-							Filter:                  "",
-							CanDownloadPCAP:         true,
-							CanUseScripting:         true,
+							Filter:          "",
+							CanDownloadPCAP: true,
+							CanUseScripting: true,
+							ScriptingPermissions: configStructs.ScriptingPermissions{
+								CanSave:     true,
+								CanActivate: true,
+								CanDelete:   true,
+							},
 							CanUpdateTargetedPods:   true,
 							CanStopTrafficCapturing: true,
 							ShowAdminConsoleLink:    true,
@@ -81,7 +86,9 @@ func CreateDefaultConfig() ConfigStruct {
 				// "tcp",
 				// "udp",
 				"ws",
-				"tls",
+				// "tlsx",
+				"ldap",
+				"radius",
 			},
 		},
 	}
@@ -112,6 +119,7 @@ type ConfigStruct struct {
 	Scripting                 configStructs.ScriptingConfig `yaml:"scripting" json:"scripting"`
 	Manifests                 ManifestsConfig               `yaml:"manifests,omitempty" json:"manifests,omitempty"`
 	Timezone                  string                        `yaml:"timezone" json:"timezone"`
+	LogLevel                  string                        `yaml:"logLevel" json:"logLevel" default:"warning"`
 }
 
 func (config *ConfigStruct) ImagePullPolicy() v1.PullPolicy {

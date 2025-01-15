@@ -131,7 +131,7 @@ Example for overriding image names:
 | `tap.docker.overrideImage`                | Can be used to directly override image names  | `""`                                                    |
 | `tap.docker.overrideTag`                  | Can be used to override image tags            | `""`                                                    |
 | `tap.proxy.hub.srvPort`                   | Hub server port. Change if already occupied.  | `8898`                                                  |
-| `tap.proxy.worker.srvPort`                | Worker server port. Change if already occupied.| `30001`                                                |
+| `tap.proxy.worker.srvPort`                | Worker server port. Change if already occupied.| `48999`                                                |
 | `tap.proxy.front.port`                    | Front service port. Change if already occupied.| `8899`                                                 |
 | `tap.proxy.host`                          | Change to 0.0.0.0 top open up to the world.   | `127.0.0.1`                                             |
 | `tap.regex`                               | Target (process traffic from) pods that match regex | `.*`                                              |
@@ -160,6 +160,14 @@ Example for overriding image names:
 | `tap.resources.tracer.limits.memory`      | Memory limit for tracer                       | `3Gi`                                                |
 | `tap.resources.tracer.requests.cpu`       | CPU request for tracer                        | `50m`                                                   |
 | `tap.resources.tracer.requests.memory`    | Memory request for tracer                     | `50Mi`                                                  |
+| `tap.probes.hub.initialDelaySeconds`      | Initial delay before probing the hub         | `15`                                                    |
+| `tap.probes.hub.periodSeconds`            | Period between probes for the hub             | `10`                                                    |
+| `tap.probes.hub.successThreshold`         | Number of successful probes before considering the hub healthy | `1`                                        |
+| `tap.probes.hub.failureThreshold`         | Number of failed probes before considering the hub unhealthy | `3`                                           |
+| `tap.probes.sniffer.initialDelaySeconds`  | Initial delay before probing the sniffer     | `15`                                                    |
+| `tap.probes.sniffer.periodSeconds`        | Period between probes for the sniffer         | `10`                                                    |
+| `tap.probes.sniffer.successThreshold`     | Number of successful probes before considering the sniffer healthy | `1`                                    |
+| `tap.probes.sniffer.failureThreshold`     | Number of failed probes before considering the sniffer unhealthy | `3`                                       |
 | `tap.serviceMesh`                         | Capture traffic from service meshes like Istio, Linkerd, Consul, etc.          | `true`                                                  |
 | `tap.tls`                                 | Capture the encrypted/TLS traffic from cryptography libraries like OpenSSL                         | `true`                                                  |
 | `tap.disableTlsLog`                       | Suppress logging for TLS/eBPF                 | `true`                                                 |
@@ -175,7 +183,7 @@ Example for overriding image names:
 | `tap.auth.saml.x509crt`                   | A self-signed X.509 `.cert` contents <br/>(effective, if `tap.auth.type = saml`)          | ``                                                      |
 | `tap.auth.saml.x509key`                   | A self-signed X.509 `.key` contents <br/>(effective, if `tap.auth.type = saml`)           | ``                                                      |
 | `tap.auth.saml.roleAttribute`             | A SAML attribute name corresponding to user's authorization role <br/>(effective, if `tap.auth.type = saml`)  | `role` |
-| `tap.auth.saml.roles`                     | A list of SAML authorization roles and their permissions <br/>(effective, if `tap.auth.type = saml`)  | `{"admin":{"canDownloadPCAP":true,"canUpdateTargetedPods":true,"canUseScripting":true, "canStopTrafficCapturing":true, "filter":"","showAdminConsoleLink":true}}` |
+| `tap.auth.saml.roles`                     | A list of SAML authorization roles and their permissions <br/>(effective, if `tap.auth.type = saml`)  | `{"admin":{"canDownloadPCAP":true,"canUpdateTargetedPods":true,"canUseScripting":true, "scriptingPermissions":{"canSave":true, "canActivate":true, "canDelete":true}, "canStopTrafficCapturing":true, "filter":"","showAdminConsoleLink":true}}` |
 | `tap.ingress.enabled`                     | Enable `Ingress`                                | `false`                                                 |
 | `tap.ingress.className`                   | Ingress class name                            | `""`                                                    |
 | `tap.ingress.host`                        | Host of the `Ingress`                          | `ks.svc.cluster.local`                                  |
@@ -187,10 +195,10 @@ Example for overriding image names:
 | `tap.resourceGuard.enabled`               | Enable resource guard worker process, which watches RAM/disk usage and enables/disables traffic capture based on available resources | `false` |
 | `tap.sentry.enabled`                      | Enable sending of error logs to Sentry          | `false`                                                  |
 | `tap.sentry.environment`                      | Sentry environment to label error logs with      | `production`                                                  |
-| `tap.defaultFilter`                       | Sets the default dashboard KFL filter (e.g. `http`). By default, this value is set to filter out noisy protocols such as DNS, UDP, ICMP and TCP. The user can easily change this in the Dashboard. You can also change this value to change this behavior.        | `"!dns and !tcp and !udp and !icmp"`                                                  |
+| `tap.defaultFilter`                       | Sets the default dashboard KFL filter (e.g. `http`). By default, this value is set to filter out noisy protocols such as DNS, UDP, ICMP and TCP. The user can easily change this, **temporarily**, in the Dashboard. For a permanent change, you should change this value in the `values.yaml` or `config.yaml` file.        | `"!dns and !error"`                                    |
 | `tap.globalFilter`                        | Prepends to any KFL filter and can be used to limit what is visible in the dashboard. For example, `redact("request.headers.Authorization")` will redact the appropriate field. Another example `!dns` will not show any DNS traffic.      | `""`                                        |
 | `tap.metrics.port`                  | Pod port used to expose Prometheus metrics          | `49100`                                                  |
-| `tap.enabledDissectors`                   | This is an array of strings representing the list of supported protocols. Remove or comment out redundant protocols (e.g., dns).| The default list excludes: `dns` and `tcp` |
+| `tap.enabledDissectors`                   | This is an array of strings representing the list of supported protocols. Remove or comment out redundant protocols (e.g., dns).| The default list excludes: `udp` and `tcp` |
 | `logs.file`                               | Logs dump path                      | `""`                                                    |
 | `pcapdump.enabled`                        | Enable recording of all traffic captured according to other parameters. Whatever Kubeshark captures, considering pod targeting rules, will be stored in pcap files ready to be viewed by tools                 | `true`                                                                                                  |
 | `pcapdump.maxTime`                        | The time window into the past that will be stored. Older traffic will be discarded.  | `2h`  |

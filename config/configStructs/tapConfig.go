@@ -43,6 +43,7 @@ const (
 	PcapTimeInterval             = "timeInterval"
 	PcapKubeconfig               = "kubeconfig"
 	PcapDumpEnabled              = "enabled"
+	PcapTime                     = "time"
 )
 
 type ResourceLimitsHub struct {
@@ -71,7 +72,7 @@ type ResourceRequirementsWorker struct {
 }
 
 type WorkerConfig struct {
-	SrvPort uint16 `yaml:"srvPort" json:"srvPort" default:"30001"`
+	SrvPort uint16 `yaml:"srvPort" json:"srvPort" default:"48999"`
 }
 
 type HubConfig struct {
@@ -116,13 +117,32 @@ type ResourcesConfig struct {
 	Tracer  ResourceRequirementsWorker `yaml:"tracer" json:"tracer"`
 }
 
+type ProbesConfig struct {
+	Hub     ProbeConfig `yaml:"hub" json:"hub"`
+	Sniffer ProbeConfig `yaml:"sniffer" json:"sniffer"`
+}
+
+type ProbeConfig struct {
+	InitialDelaySeconds int `yaml:"initialDelaySeconds" json:"initialDelaySeconds" default:"15"`
+	PeriodSeconds       int `yaml:"periodSeconds" json:"periodSeconds" default:"10"`
+	SuccessThreshold    int `yaml:"successThreshold" json:"successThreshold" default:"1"`
+	FailureThreshold    int `yaml:"failureThreshold" json:"failureThreshold" default:"3"`
+}
+
+type ScriptingPermissions struct {
+	CanSave     bool `yaml:"canSave" json:"canSave" default:"true"`
+	CanActivate bool `yaml:"canActivate" json:"canActivate" default:"true"`
+	CanDelete   bool `yaml:"canDelete" json:"canDelete" default:"true"`
+}
+
 type Role struct {
-	Filter                  string `yaml:"filter" json:"filter" default:""`
-	CanDownloadPCAP         bool   `yaml:"canDownloadPCAP" json:"canDownloadPCAP" default:"false"`
-	CanUseScripting         bool   `yaml:"canUseScripting" json:"canUseScripting" default:"false"`
-	CanUpdateTargetedPods   bool   `yaml:"canUpdateTargetedPods" json:"canUpdateTargetedPods" default:"false"`
-	CanStopTrafficCapturing bool   `yaml:"canStopTrafficCapturing" json:"canStopTrafficCapturing" default:"false"`
-	ShowAdminConsoleLink    bool   `yaml:"showAdminConsoleLink" json:"showAdminConsoleLink" default:"false"`
+	Filter                  string               `yaml:"filter" json:"filter" default:""`
+	CanDownloadPCAP         bool                 `yaml:"canDownloadPCAP" json:"canDownloadPCAP" default:"false"`
+	CanUseScripting         bool                 `yaml:"canUseScripting" json:"canUseScripting" default:"false"`
+	ScriptingPermissions    ScriptingPermissions `yaml:"scriptingPermissions" json:"scriptingPermissions"`
+	CanUpdateTargetedPods   bool                 `yaml:"canUpdateTargetedPods" json:"canUpdateTargetedPods" default:"false"`
+	CanStopTrafficCapturing bool                 `yaml:"canStopTrafficCapturing" json:"canStopTrafficCapturing" default:"false"`
+	ShowAdminConsoleLink    bool                 `yaml:"showAdminConsoleLink" json:"showAdminConsoleLink" default:"false"`
 }
 
 type SamlConfig struct {
@@ -201,6 +221,7 @@ type PcapDumpConfig struct {
 	PcapMaxTime      string `yaml:"maxTime" json:"maxTime" default:"1h"`
 	PcapMaxSize      string `yaml:"maxSize" json:"maxSize" default:"500MB"`
 	PcapSrcDir       string `yaml:"pcapSrcDir" json:"pcapSrcDir" default:"pcapdump"`
+	PcapTime         string `yaml:"time" json:"time" default:"time"`
 }
 
 type TapConfig struct {
@@ -219,6 +240,7 @@ type TapConfig struct {
 	StorageClass                 string                `yaml:"storageClass" json:"storageClass" default:"standard"`
 	DryRun                       bool                  `yaml:"dryRun" json:"dryRun" default:"false"`
 	Resources                    ResourcesConfig       `yaml:"resources" json:"resources"`
+	Probes                       ProbesConfig          `yaml:"probes" json:"probes"`
 	ServiceMesh                  bool                  `yaml:"serviceMesh" json:"serviceMesh" default:"true"`
 	Tls                          bool                  `yaml:"tls" json:"tls" default:"true"`
 	DisableTlsLog                bool                  `yaml:"disableTlsLog" json:"disableTlsLog" default:"true"`
@@ -234,7 +256,7 @@ type TapConfig struct {
 	Telemetry                    TelemetryConfig       `yaml:"telemetry" json:"telemetry"`
 	ResourceGuard                ResourceGuardConfig   `yaml:"resourceGuard" json:"resourceGuard"`
 	Sentry                       SentryConfig          `yaml:"sentry" json:"sentry"`
-	DefaultFilter                string                `yaml:"defaultFilter" json:"defaultFilter" default:"!dns and !tcp and !udp and !icmp"`
+	DefaultFilter                string                `yaml:"defaultFilter" json:"defaultFilter" default:"!dns and !error"`
 	ScriptingDisabled            bool                  `yaml:"scriptingDisabled" json:"scriptingDisabled" default:"false"`
 	TargetedPodsUpdateDisabled   bool                  `yaml:"targetedPodsUpdateDisabled" json:"targetedPodsUpdateDisabled" default:"false"`
 	PresetFiltersChangingEnabled bool                  `yaml:"presetFiltersChangingEnabled" json:"presetFiltersChangingEnabled" default:"true"`
@@ -243,6 +265,7 @@ type TapConfig struct {
 	Capabilities                 CapabilitiesConfig    `yaml:"capabilities" json:"capabilities"`
 	GlobalFilter                 string                `yaml:"globalFilter" json:"globalFilter" default:""`
 	EnabledDissectors            []string              `yaml:"enabledDissectors" json:"enabledDissectors"`
+	CustomMacros                 map[string]string     `yaml:"customMacros" json:"customMacros" default:"{\"https\":\"tls and (http or http2)\"}"`
 	Metrics                      MetricsConfig         `yaml:"metrics" json:"metrics"`
 	Pprof                        PprofConfig           `yaml:"pprof" json:"pprof"`
 	Misc                         MiscConfig            `yaml:"misc" json:"misc"`
