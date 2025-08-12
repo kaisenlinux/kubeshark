@@ -5,8 +5,8 @@ metadata:
   labels:
     app.kubeshark.co/app: hub
     {{- include "kubeshark.labels" . | nindent 4 }}
-  annotations:
   {{- if .Values.tap.annotations }}
+  annotations:
     {{- toYaml .Values.tap.annotations | nindent 4 }}
   {{- end }}
   name: {{ include "kubeshark.name" . }}-hub
@@ -25,6 +25,9 @@ spec:
     spec:
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: {{ include "kubeshark.serviceAccountName" . }}
+      {{- if .Values.tap.priorityClass }}
+      priorityClassName: {{ .Values.tap.priorityClass | quote }}
+      {{- end }}
       containers:
         - name: hub
           command:
@@ -33,6 +36,16 @@ spec:
             - "8080"
             - -loglevel
             - '{{ .Values.logLevel | default "warning" }}'
+            {{- if .Values.tap.gitops.enabled }}
+            - -gitops
+            {{- end }}
+          {{- if .Values.tap.secrets }}
+          envFrom:
+            {{- range .Values.tap.secrets }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- end }}
           env:
           - name: POD_NAME
             valueFrom:
@@ -58,12 +71,6 @@ spec:
           image: '{{ .Values.tap.docker.registry }}/hub:{{ not (eq .Values.tap.docker.tag "") | ternary .Values.tap.docker.tag (include "kubeshark.defaultVersion" .) }}'
         {{- end }}
           imagePullPolicy: {{ .Values.tap.docker.imagePullPolicy }}
-        {{- if .Values.tap.docker.imagePullSecrets }}
-          imagePullSecrets:
-            {{- range .Values.tap.docker.imagePullSecrets }}
-            - name: {{ . }}
-            {{- end }}
-        {{- end }}
           readinessProbe:
             periodSeconds: {{ .Values.tap.probes.hub.periodSeconds }}
             failureThreshold: {{ .Values.tap.probes.hub.failureThreshold }}
@@ -90,13 +97,60 @@ spec:
               {{ if ne (toString .Values.tap.resources.hub.requests.cpu) "0" }}
               cpu: {{ .Values.tap.resources.hub.requests.cpu }}
               {{ end }}
-              {{ if ne (toString .Values.tap.resources.hub.requests.memor) "0" }}
+              {{ if ne (toString .Values.tap.resources.hub.requests.memory) "0" }}
               memory: {{ .Values.tap.resources.hub.requests.memory }}
               {{ end }}
           volumeMounts:
           - name: saml-x509-volume
             mountPath: "/etc/saml/x509"
             readOnly: true
+{{- if gt (len .Values.tap.nodeSelectorTerms.hub) 0}}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              {{- toYaml .Values.tap.nodeSelectorTerms.hub | nindent 12 }}
+{{- end }}
+      {{- if or .Values.tap.dns.nameservers .Values.tap.dns.searches .Values.tap.dns.options }}
+      dnsConfig:
+        {{- if .Values.tap.dns.nameservers }}
+        nameservers:
+        {{- range .Values.tap.dns.nameservers }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.tap.dns.searches }}
+        searches:
+        {{- range .Values.tap.dns.searches }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.tap.dns.options }}
+        options:
+        {{- range .Values.tap.dns.options }}
+          - name: {{ .name | quote }}
+            {{- if .value }}
+            value: {{ .value | quote }}
+            {{- end }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if .Values.tap.tolerations.hub }}
+      tolerations:
+      {{- range .Values.tap.tolerations.hub }}
+        - key: {{ .key | quote }}
+          operator: {{ .operator | quote }}
+          {{- if .value }}
+          value: {{ .value | quote }}
+          {{- end }}
+          {{- if .effect }}
+          effect: {{ .effect | quote }}
+          {{- end }}
+          {{- if .tolerationSeconds }}
+          tolerationSeconds: {{ .tolerationSeconds }}
+          {{- end }}
+      {{- end }}
+      {{- end }}
       volumes:
       - name: saml-x509-volume
         projected:

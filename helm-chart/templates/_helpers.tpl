@@ -50,6 +50,18 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Set configmap and secret names based on gitops.enabled
+*/}}
+{{- define "kubeshark.configmapName" -}}
+kubeshark-config-map{{ if .Values.tap.gitops.enabled }}-default{{ end }}
+{{- end -}}
+
+{{- define "kubeshark.secretName" -}}
+kubeshark-secret{{ if .Values.tap.gitops.enabled }}-default{{ end }}
+{{- end -}}
+
+
+{{/*
 Escape double quotes in a string
 */}}
 {{- define "kubeshark.escapeDoubleQuotes" -}}
@@ -68,7 +80,7 @@ Create docker tag default version
 */}}
 {{- define "kubeshark.defaultVersion" -}}
 {{- $defaultVersion := (printf "v%s" .Chart.Version) -}}
-{{- if not .Values.tap.docker.tagLocked }}
+{{- if .Values.tap.docker.tagLocked }}
   {{- $defaultVersion = regexReplaceAll "^([^.]+\\.[^.]+).*" $defaultVersion "$1" -}}
 {{- end }}
 {{- $defaultVersion }}
@@ -86,3 +98,15 @@ Set sentry based on internet connectivity and telemetry
   {{- end -}}
   {{- $sentryEnabledVal -}}
 {{- end -}}
+
+{{/*
+Dex IdP: retrieve a secret for static client with a specific ID
+*/}}
+{{- define "getDexKubesharkStaticClientSecret" -}}
+  {{- $clientId := .clientId -}}
+  {{- range .clients }}
+    {{- if eq .id $clientId }}
+      {{- .secret }}
+    {{- end }}
+  {{- end }}
+{{- end }}

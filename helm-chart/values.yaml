@@ -33,10 +33,16 @@ tap:
     namespace: default
   persistentStorage: false
   persistentStorageStatic: false
+  persistentStoragePvcVolumeMode: FileSystem
   efsFileSytemIdAndPath: ""
-  storageLimit: 5000Mi
+  secrets: []
+  storageLimit: 5Gi
   storageClass: standard
   dryRun: false
+  dns:
+    nameservers: []
+    searches: []
+    options: []
   resources:
     hub:
       limits:
@@ -61,28 +67,52 @@ tap:
         memory: 50Mi
   probes:
     hub:
-      initialDelaySeconds: 15
-      periodSeconds: 10
+      initialDelaySeconds: 5
+      periodSeconds: 5
       successThreshold: 1
       failureThreshold: 3
     sniffer:
-      initialDelaySeconds: 15
-      periodSeconds: 10
+      initialDelaySeconds: 5
+      periodSeconds: 5
       successThreshold: 1
       failureThreshold: 3
   serviceMesh: true
   tls: true
   disableTlsLog: true
   packetCapture: best
-  ignoreTainted: false
   labels: {}
   annotations: {}
   nodeSelectorTerms:
-  - matchExpressions:
-    - key: kubernetes.io/os
-      operator: In
-      values:
-      - linux
+    hub:
+    - matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+    workers:
+    - matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+    front:
+    - matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+    dex:
+    - matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+  tolerations:
+    hub: []
+    workers:
+    - operator: Exists
+      effect: NoExecute
+    front: []
   auth:
     enabled: false
     type: saml
@@ -109,34 +139,27 @@ tap:
     host: ks.svc.cluster.local
     tls: []
     annotations: {}
+  priorityClass: ""
+  routing:
+    front:
+      basePath: ""
   ipv6: true
   debug: false
+  dashboard:
+    completeStreamingEnabled: true
   telemetry:
     enabled: true
   resourceGuard:
+    enabled: false
+  watchdog:
+    enabled: false
+  gitops:
     enabled: false
   sentry:
     enabled: false
     environment: production
   defaultFilter: "!dns and !error"
-  scriptingDisabled: false
-  targetedPodsUpdateDisabled: false
-  presetFiltersChangingEnabled: true
-  recordingDisabled: false
-  stopTrafficCapturingDisabled: false
-  capabilities:
-    networkCapture:
-    - NET_RAW
-    - NET_ADMIN
-    serviceMeshCapture:
-    - SYS_ADMIN
-    - SYS_PTRACE
-    - DAC_OVERRIDE
-    ebpfCapture:
-    - SYS_ADMIN
-    - SYS_PTRACE
-    - SYS_RESOURCE
-    - IPC_LOCK
+  liveConfigMapChangesDisabled: false
   globalFilter: ""
   enabledDissectors:
   - amqp
@@ -145,11 +168,26 @@ tap:
   - icmp
   - kafka
   - redis
-  - sctp
-  - syscall
   - ws
   - ldap
   - radius
+  - diameter
+  portMapping:
+    http:
+    - 80
+    - 443
+    - 8080
+    amqp:
+    - 5671
+    - 5672
+    kafka:
+    - 9092
+    redis:
+    - 6379
+    ldap:
+    - 389
+    diameter:
+    - 3868
   customMacros:
     https: tls and (http or http2)
   metrics:
@@ -169,6 +207,30 @@ tap:
     duplicateTimeframe: 200ms
     detectDuplicates: false
     staleTimeoutSeconds: 30
+  securityContext:
+    privileged: true
+    appArmorProfile:
+      type: ""
+      localhostProfile: ""
+    seLinuxOptions:
+      level: ""
+      role: ""
+      type: ""
+      user: ""
+    capabilities:
+      networkCapture:
+      - NET_RAW
+      - NET_ADMIN
+      serviceMeshCapture:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - DAC_OVERRIDE
+      ebpfCapture:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - SYS_RESOURCE
+      - IPC_LOCK
+  mountBpf: true
 logs:
   file: ""
   grep: ""
@@ -177,8 +239,9 @@ pcapdump:
   timeInterval: 1m
   maxTime: 1h
   maxSize: 500MB
-  pcapSrcDir: pcapdump
   time: time
+  debug: false
+  dest: ""
 kube:
   configPath: ""
   context: ""
@@ -186,9 +249,11 @@ dumpLogs: false
 headless: false
 license: ""
 cloudLicenseEnabled: true
+aiAssistantEnabled: true
+demoModeEnabled: false
 supportChatEnabled: true
+betaEnabled: false
 internetConnectivity: true
-dissectorsUpdatingEnabled: true
 scripting:
   env: {}
   source: ""
